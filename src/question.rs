@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
+use std::ops::Index;
 use std::str::FromStr;
 
 #[derive(Debug)]
@@ -52,12 +53,12 @@ pub enum Square {
 // }
 
 pub struct QuestionCollection {
-    puzzles: Vec<Question>,
+    questions: Vec<Question>,
 }
 
 impl QuestionCollection {
     pub fn len(&self) -> usize {
-        self.puzzles.len()
+        self.questions.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -85,17 +86,17 @@ impl FromStr for QuestionCollection {
             puzzles.push(puzzle);
         }
 
-        Ok(Self { puzzles })
+        Ok(Self { questions: puzzles })
     }
 }
 
 impl QuestionCollection {
     pub fn iter(&self) -> impl Iterator<Item = &Question> {
-        self.puzzles.iter()
+        self.questions.iter()
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Question> {
-        self.puzzles.iter_mut()
+        self.questions.iter_mut()
     }
 }
 
@@ -104,7 +105,15 @@ impl IntoIterator for QuestionCollection {
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.puzzles.into_iter()
+        self.questions.into_iter()
+    }
+}
+
+impl Index<usize> for QuestionCollection {
+    type Output = Question;
+
+    fn index(&self, idx: usize) -> &Self::Output {
+        &self.questions[idx]
     }
 }
 
@@ -113,7 +122,7 @@ pub struct Position(usize, usize);
 
 impl Position {
     /// Converts the position into a 1D `usize`. The output position
-    /// depends on the `width.
+    /// depends on the `width`.
     pub fn to_usize(&self, width: usize) -> usize {
         self.1 * width + self.0
     }

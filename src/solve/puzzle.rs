@@ -8,12 +8,57 @@ use crate::question;
 bitflags! {
     struct Flags:u8 {
         const WALL     = 0b00001;
-        const OPEN     = 0b00010;
+        const SPACE    = 0b00010;
         const PLAYER   = 0b00100;
         const BOX      = 0b01000;
         const TARGET   = 0b10000;
 
-        const MOVABLE  = Self::OPEN.bits | Self::TARGET.bits;
+        const WALKABLE  = Self::SPACE.bits | Self::TARGET.bits;
+    }
+}
+
+impl Flags {
+    /// Returns `true` if there is nothing on top of the square. ie. If the square is
+    /// a space but there is not a player or box above it. (It can be a target.)
+    fn is_walkable(&self) -> bool {
+        *self | Self::TARGET == Self::WALKABLE
+    }
+}
+
+#[derive(Debug, Default)]
+struct PositionHelper {
+    width: usize,
+    height: usize,
+}
+
+impl PositionHelper {
+    /// Returns the position directly to the west of `pos`.
+    fn west(&self, pos: usize) -> Option<usize> {
+        if pos % self.width == 0 {
+            return None;
+        }
+        Some(pos - 1)
+    }
+
+    /// Returns the position directly to the east of `pos`.
+    fn east(&self, pos: usize) -> Option<usize> {
+        if (pos + 1) % self.width == 0 {
+            return None;
+        }
+        Some(pos + 1)
+    }
+
+    /// Returns the position directly to the north of `pos`.
+    fn north(&self, pos: usize) -> Option<usize> {
+        pos.checked_sub(self.width)
+    }
+
+    /// Returns the position directly to the south of `pos`.
+    fn south(&self, pos: usize) -> Option<usize> {
+        if pos / self.width + 1 == self.height {
+            return None;
+        }
+        Some(pos + 1)
     }
 }
 
@@ -25,6 +70,8 @@ pub struct Puzzle {
     boxes: FxHashSet<usize>,
     targets: FxHashSet<usize>,
     pos: usize,
+
+    poshelper: PositionHelper,
 
     /// `movable_positions` should always be kept updated.
     movable_positions: FxHashSet<usize>,
@@ -52,11 +99,18 @@ impl Puzzle {
         while !bag.is_empty() {
             let current = bag.pop().unwrap();
 
-            for method in [Self::west_of, Self::east_of, Self::north_of, Self::south_of] {
-                if let Some(new_pos) = method(self, current) {
-                    if !visited.contains(&new_pos) {
-                        visited.insert(new_pos);
-                    }
+            for new_pos in [
+                self.poshelper.west(current),
+                self.poshelper.east(current),
+                self.poshelper.north(current),
+                self.poshelper.south(current),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                if !visited.contains(&new_pos) {
+                    bag.push(new_pos);
+                    visited.insert(new_pos);
                 }
             }
         }
@@ -71,6 +125,11 @@ impl Puzzle {
     fn update_movable_positions(&mut self) {
         self.set_movable_positions(self.find_movable_positions())
     }
+
+    /// Returns `true` if the player can move to `pos` from its current position.
+    pub fn can_move_to(&self, pos: usize) -> bool {
+        self.movable_positions.contains(&pos)
+    }
 }
 
 impl Puzzle {
@@ -78,97 +137,96 @@ impl Puzzle {
     ///
     /// There doesn't have to be a box currently placed on `pos`.
     pub fn can_push_west(&self, pos: usize) -> bool {
-        let east = self.east_of(pos);
-        east.is_some() && self.unblocked_west(pos) && self.can_move_to(east.unwrap())
+        let east = self.poshelper.east(pos);
+        east.is_some() && self.is_clear_west(pos) && self.can_move_to(east.unwrap())
     }
     /// Returns `true` if a box placed on `pos` could be pushed to the east.
     ///
     /// There doesn't have to be a box currently placed on `pos`.
     pub fn can_push_east(&self, pos: usize) -> bool {
-        let west = self.west_of(pos);
-        west.is_some() && self.unblocked_east(pos) && self.can_move_to(west.unwrap())
+        let west = self.poshelper.west(pos);
+        west.is_some() && self.is_clear_east(pos) && self.can_move_to(west.unwrap())
     }
     /// Returns `true` if a box placed on `pos` could be pushed to the north.
     ///
     /// There doesn't have to be a box currently placed on `pos`.
     pub fn can_push_north(&self, pos: usize) -> bool {
-        let south = self.south_of(pos);
-        south.is_some() && self.unblocked_north(pos) && self.can_move_to(south.unwrap())
+        let south = self.poshelper.south(pos);
+        south.is_some() && self.is_clear_north(pos) && self.can_move_to(south.unwrap())
     }
     /// Returns `true` if a box placed on `pos` could be pushed to the south.
     ///
     /// There doesn't have to be a box currently placed on `pos`.
     pub fn can_push_south(&self, pos: usize) -> bool {
-        let north = self.north_of(pos);
-        north.is_some() && self.unblocked_south(pos) && self.can_move_to(north.unwrap())
+        let north = self.poshelper.north(pos);
+        north.is_some() && self.is_clear_south(pos) && self.can_move_to(north.unwrap())
     }
 }
 
 impl Puzzle {
+    /// Returns `true` if there is nothing on top of the square corresponding to `pos`.
+    pub fn is_clear(&self, pos: usize) -> bool {
+        self.grid[pos].is_walkable()
+    }
+
     /// Returns `true` if there is nothing on top of the square directly to the west of `pos`.
-    pub fn unblocked_west(&self, pos: usize) -> bool {
-        self._unblocked(self.west_of(pos))
+    pub fn is_clear_west(&self, pos: usize) -> bool {
+        self.west_of(pos).is_walkable()
     }
     /// Returns `true` if there is nothing on top of the square directly to the east of `pos`.
-    pub fn unblocked_east(&self, pos: usize) -> bool {
-        self._unblocked(self.east_of(pos))
+    pub fn is_clear_east(&self, pos: usize) -> bool {
+        self.east_of(pos).is_walkable()
     }
     /// Returns `true` if there is nothing on top of the square directly to the north of `pos`.
-    pub fn unblocked_north(&self, pos: usize) -> bool {
-        self._unblocked(self.north_of(pos))
+    pub fn is_clear_north(&self, pos: usize) -> bool {
+        self.north_of(pos).is_walkable()
     }
     /// Returns `true` if there is nothing on top of the square directly to the south of `pos`.
-    pub fn unblocked_south(&self, pos: usize) -> bool {
-        self._unblocked(self.south_of(pos))
+    pub fn is_clear_south(&self, pos: usize) -> bool {
+        self.south_of(pos).is_walkable()
     }
-    fn _unblocked(&self, pos: Option<usize>) -> bool {
-        match pos {
-            Some(p) => self.is_unblocked(p),
-            None => false,
+
+    /// Returns the square directly to the west of `pos`. A wall is returned for an out of
+    /// bounds position.
+    fn west_of(&self, pos: usize) -> Flags {
+        self._of_helper(self.poshelper.west(pos))
+    }
+    /// Returns the square directly to the east of `pos`. A wall is returned for an out of
+    /// bounds position.
+    fn east_of(&self, pos: usize) -> Flags {
+        self._of_helper(self.poshelper.east(pos))
+    }
+    /// Returns the square directly to the north of `pos`. A wall is returned for an out of
+    /// bounds position.
+    fn north_of(&self, pos: usize) -> Flags {
+        self._of_helper(self.poshelper.north(pos))
+    }
+    /// Returns the square directly to the south of `pos`. A wall is returned for an out of
+    /// bounds position.
+    fn south_of(&self, pos: usize) -> Flags {
+        self._of_helper(self.poshelper.south(pos))
+    }
+    fn _of_helper(&self, new_pos: Option<usize>) -> Flags {
+        match new_pos {
+            Some(pos) => self.grid[pos],
+            None => Flags::WALL,
         }
-    }
-
-    /// Returns `true` if there is nothing on top of the square corresponding to `pos`.
-    pub fn is_unblocked(&self, pos: usize) -> bool {
-        self.grid[pos] | Flags::TARGET == Flags::MOVABLE
-    }
-
-    /// Returns `true` if the character can move to `pos` from its current position.
-    pub fn can_move_to(&self, pos: usize) -> bool {
-        self.movable_positions.contains(&pos)
-    }
-
-    //
-    // Perhaps these follwing methods should be called slightly differently.
-    // The methods with these names should instead return Option<item on the direction>.
-
-    /// Returns the position directly to the west of `pos`.
-    fn west_of(&self, pos: usize) -> Option<usize> {
-        pos.checked_sub(1)
-    }
-    /// Returns the position directly to the east of `pos`.
-    fn east_of(&self, pos: usize) -> Option<usize> {
-        pos.checked_add(1)
-    }
-    /// Returns the position directly to the north of `pos`.
-    fn north_of(&self, pos: usize) -> Option<usize> {
-        pos.checked_sub(self.width)
-    }
-    /// Returns the position directly to the south of `pos`.
-    fn south_of(&self, pos: usize) -> Option<usize> {
-        pos.checked_add(self.width)
     }
 }
 
-impl From<question::Question> for Puzzle {
-    fn from(question: question::Question) -> Self {
+// impl From<&question::Question> for Puzzle {
+//     fn from(question: &question::Question) -> Self {
+impl<Q: std::borrow::Borrow<question::Question>> From<Q> for Puzzle {
+    fn from(question: Q) -> Self {
+        println!("In Puzzle::From<Question>");
+        let question = question.borrow();
         let (width, height) = (question.width(), question.height());
         let mut grid = Vec::with_capacity(width * height);
         for row in question.rows() {
             for sq in row {
                 grid.push(match *sq {
                     question::Square::Wall => Flags::WALL,
-                    question::Square::Space => Flags::OPEN,
+                    question::Square::Space => Flags::SPACE,
                 })
             }
         }
@@ -190,14 +248,17 @@ impl From<question::Question> for Puzzle {
         let boxes = mapper(question.boxes(), Flags::BOX);
         let targets = mapper(question.targets(), Flags::TARGET);
 
-        Self {
+        let mut ret = Self {
             grid,
             width,
             height,
             boxes,
             targets,
             pos: start,
+            poshelper: PositionHelper { height, width },
             ..Self::default()
-        }
+        };
+        ret.update_movable_positions();
+        ret
     }
 }
