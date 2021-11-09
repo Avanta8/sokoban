@@ -195,10 +195,15 @@ impl FromStr for Question {
             let mut reached_wall = false;
             let mut row_squares = Vec::with_capacity(width);
             for (x, &c) in row.iter().enumerate() {
-                let square = if reached_wall {
-                    match c {
-                        WALL_CHAR => Square::Wall,
-                        SPACE_CHAR | TARGET_CHAR | BOX_CHAR | START_CHAR | PLACED_CHAR => {
+                let square = match c {
+                    WALL_CHAR => {
+                        reached_wall = true;
+                        Square::Wall
+                    }
+                    SPACE_CHAR | TARGET_CHAR | BOX_CHAR | START_CHAR | PLACED_CHAR => {
+                        if !reached_wall {
+                            Square::Wall
+                        } else {
                             let pos = Position(x, y);
                             match c {
                                 TARGET_CHAR => {
@@ -224,11 +229,8 @@ impl FromStr for Question {
                             };
                             Square::Space
                         }
-                        _ => return Err(ParseError::new("invalid text in grid")),
                     }
-                } else {
-                    reached_wall = true;
-                    Square::Wall
+                    _ => return Err(ParseError::new("invalid text in grid")),
                 };
                 row_squares.push(square);
             }
