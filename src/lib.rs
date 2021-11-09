@@ -1,8 +1,6 @@
-// #![deny(rust_2018_idioms)]
-
-pub mod puzzle;
+pub mod question;
 pub mod reader;
-pub mod solver;
+pub mod solve;
 
 #[cfg(test)]
 mod tests {

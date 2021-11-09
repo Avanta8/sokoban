@@ -1,7 +1,7 @@
 use std::env;
 use std::error::Error;
 
-use sokoban::{reader, solver};
+use sokoban::{reader, solve};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = env::args().collect::<Vec<_>>();
@@ -10,7 +10,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut puzzles = reader::read(config)?;
 
-    solver::solve_collection(&mut puzzles);
+    solve::solve_collection(&mut puzzles);
 
     Ok(())
 }

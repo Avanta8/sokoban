@@ -51,11 +51,21 @@ pub enum Square {
 //     }
 // }
 
-pub struct PuzzleCollection {
-    puzzles: Vec<Puzzle>,
+pub struct QuestionCollection {
+    puzzles: Vec<Question>,
 }
 
-impl FromStr for PuzzleCollection {
+impl QuestionCollection {
+    pub fn len(&self) -> usize {
+        self.puzzles.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl FromStr for QuestionCollection {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -69,7 +79,7 @@ impl FromStr for PuzzleCollection {
                 .join("\n");
 
             // May need to do something for cases if there are multiple blank lines separating puzzles
-            let puzzle = Puzzle::from_str(&puzzle_str).map_err(|err| {
+            let puzzle = Question::from_str(&puzzle_str).map_err(|err| {
                 ParseError::new(format!("error on grid {}, {:?}", puzzles.len() + 1, err))
             })?;
             puzzles.push(puzzle);
@@ -79,18 +89,18 @@ impl FromStr for PuzzleCollection {
     }
 }
 
-impl PuzzleCollection {
-    pub fn iter(&self) -> impl Iterator<Item = &Puzzle> {
+impl QuestionCollection {
+    pub fn iter(&self) -> impl Iterator<Item = &Question> {
         self.puzzles.iter()
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Puzzle> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Question> {
         self.puzzles.iter_mut()
     }
 }
 
-impl IntoIterator for PuzzleCollection {
-    type Item = Puzzle;
+impl IntoIterator for QuestionCollection {
+    type Item = Question;
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -98,14 +108,51 @@ impl IntoIterator for PuzzleCollection {
     }
 }
 
-type Position = (usize, usize);
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+pub struct Position(usize, usize);
+
+impl Position {
+    /// Converts the position into a 1D `usize`. The output position
+    /// depends on the `width.
+    pub fn to_usize(&self, width: usize) -> usize {
+        self.1 * width + self.0
+    }
+}
 
 #[allow(dead_code)]
-pub struct Puzzle {
+pub struct Question {
+    width: usize,
+    height: usize,
     grid: Vec<Vec<Square>>,
     boxes: HashSet<Position>,
     targets: HashSet<Position>,
-    pos: Position,
+    start: Position,
+}
+
+impl Question {
+    pub fn rows(&self) -> impl Iterator<Item = &Vec<Square>> {
+        self.grid.iter()
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    pub fn boxes(&self) -> &HashSet<Position> {
+        &self.boxes
+    }
+
+    pub fn targets(&self) -> &HashSet<Position> {
+        &self.targets
+    }
+
+    pub fn start(&self) -> Position {
+        self.start
+    }
 }
 
 const WALL_CHAR: char = '#';
@@ -115,7 +162,7 @@ const TARGET_CHAR: char = '.';
 const PLACED_CHAR: char = '*';
 const START_CHAR: char = '@';
 
-impl FromStr for Puzzle {
+impl FromStr for Question {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -143,7 +190,7 @@ impl FromStr for Puzzle {
                     match c {
                         WALL_CHAR => Square::Wall,
                         SPACE_CHAR | TARGET_CHAR | BOX_CHAR | START_CHAR | PLACED_CHAR => {
-                            let pos = (x, y);
+                            let pos = Position(x, y);
                             match c {
                                 TARGET_CHAR => {
                                     targets.insert(pos);
@@ -181,10 +228,12 @@ impl FromStr for Puzzle {
         }
 
         Ok(Self {
+            width,
+            height: rows.len(),
             grid,
             boxes,
             targets,
-            pos: start.ok_or_else(|| ParseError::new("no start position"))?,
+            start: start.ok_or_else(|| ParseError::new("no start position"))?,
         })
     }
 }

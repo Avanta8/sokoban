@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fs;
 use std::str::FromStr;
 
-use crate::puzzle::PuzzleCollection;
+use crate::question::QuestionCollection;
 
 pub struct Config<'a> {
     filename: &'a String,
@@ -21,9 +21,9 @@ impl<'a> Config<'a> {
     }
 }
 
-pub fn read(config: Config) -> Result<PuzzleCollection, Box<dyn Error>> {
+pub fn read(config: Config) -> Result<QuestionCollection, Box<dyn Error>> {
     let contents = fs::read_to_string(config.filename)?;
-    let puzzles = PuzzleCollection::from_str(&contents)?;
+    let puzzles = QuestionCollection::from_str(&contents)?;
 
     // todo!()
     Ok(puzzles)
