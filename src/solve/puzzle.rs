@@ -5,6 +5,24 @@ use std::fmt;
 
 use crate::question;
 
+pub enum Dir {
+    North,
+    East,
+    South,
+    West,
+}
+
+impl Dir {
+    fn opposite_of(&self) -> Self {
+        match self {
+            Dir::North => Dir::South,
+            Dir::East => Dir::West,
+            Dir::South => Dir::North,
+            Dir::West => Dir::East,
+        }
+    }
+}
+
 bitflags! {
     struct Flags:u8 {
         const WALL     = 0b00001;
@@ -102,6 +120,27 @@ impl PositionHelper {
         Some(pos + self.width)
     }
 
+    /// This is slow for now.
+    fn shift(&self, mut pos: usize, dir: &Dir, steps: usize) -> Option<usize> {
+        for _ in 0..steps {
+            match self.dir(pos, dir) {
+                Some(p) => pos = p,
+                None => return None,
+            }
+        }
+        Some(pos)
+    }
+
+    fn dir(&self, pos: usize, dir: &Dir) -> Option<usize> {
+        let f = match dir {
+            Dir::North => Self::north,
+            Dir::East => Self::east,
+            Dir::South => Self::south,
+            Dir::West => Self::west,
+        };
+        f(self, pos)
+    }
+
     fn get_borders(&self, pos: usize) -> impl Iterator<Item = usize> {
         [
             self.north(pos),
@@ -111,6 +150,27 @@ impl PositionHelper {
         ]
         .into_iter()
         .flatten()
+    }
+
+    // Returns paris of opposite coords as iterator, but only if they both are Some
+    fn get_pairs(&self, pos: usize) -> impl Iterator<Item = (usize, usize)> {
+        let north = self.north(pos);
+        let east = self.east(pos);
+        let south = self.south(pos);
+        let west = self.west(pos);
+        [(north, south), (south, north), (west, east), (east, west)]
+            .into_iter()
+            .filter_map(|pair| match pair {
+                (Some(a), Some(b)) => Some((a, b)),
+                _ => None,
+            })
+        // [
+        //     Direction::North,
+        //     Direction::South,
+        //     Direction::East,
+        //     Direction::West,
+        // ]
+        // .map(|d| {})
     }
 }
 
@@ -219,8 +279,43 @@ impl Puzzle {
 }
 
 impl Puzzle {
-    fn find_possible_pushes(&self) {
-        for pos in self.boxes.iter() {}
+    /// The move must be valid. Otherwise can result in undefined behaviour.
+    pub fn make_push(&mut self, pos: usize, dir: &Dir, steps: usize) {
+        assert!(
+            self.grid[pos].is_box(),
+            "Tried to move position that wasn't a box. pos: {}",
+            pos
+        );
+        assert!(steps > 0, "can't move no steps");
+
+        let new_player_pos = self
+            .poshelper
+            .shift(pos, dir, steps - 1)
+            .expect("player wanted to move to invalid position");
+        let new_box_pos = self
+            .poshelper
+            .shift(new_player_pos, dir, 1)
+            .expect("box wanted to move to invalid position.");
+
+        self.grid[pos] &= !Flags::BOX;
+        self.grid[new_box_pos] &= Flags::BOX;
+
+        // self.grid[]
+    }
+}
+
+impl Puzzle {
+    fn find_possible_pushes(&self) -> Vec<(usize, usize)> {
+        let mut possible = vec![]; // (pos, new_pos)
+        for &pos in self.boxes.iter() {
+            for (from, to) in self.poshelper.get_pairs(pos) {
+                if !self.movable_positions.contains(&from) {
+                    continue;
+                }
+                possible.push((pos, to));
+            }
+        }
+        possible
     }
 }
 
