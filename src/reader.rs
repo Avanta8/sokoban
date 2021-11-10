@@ -22,7 +22,8 @@ impl<'a> Config<'a> {
 }
 
 pub fn read(config: Config) -> Result<QuestionCollection, Box<dyn Error>> {
-    let contents = fs::read_to_string(config.filename)?;
+    let filepath = format!("puzzles/{}", config.filename);
+    let contents = fs::read_to_string(filepath)?;
     let puzzles = QuestionCollection::from_str(&contents)?;
 
     // todo!()
