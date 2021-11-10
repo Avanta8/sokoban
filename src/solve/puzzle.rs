@@ -102,13 +102,15 @@ impl PositionHelper {
         Some(pos + self.width)
     }
 
-    fn get_borders(&self, pos: usize) -> [Option<usize>; 4] {
+    fn get_borders(&self, pos: usize) -> impl Iterator<Item = usize> {
         [
             self.north(pos),
             self.east(pos),
             self.south(pos),
             self.west(pos),
         ]
+        .into_iter()
+        .flatten()
     }
 }
 
@@ -187,7 +189,7 @@ impl Puzzle {
         while !bag.is_empty() {
             let current = bag.pop().unwrap();
 
-            for new_pos in self.poshelper.get_borders(current).into_iter().flatten() {
+            for new_pos in self.poshelper.get_borders(current) {
                 if self.is_clear(new_pos) && !visited.contains(&new_pos) {
                     bag.push(new_pos);
                     visited.insert(new_pos);
