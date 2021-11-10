@@ -101,6 +101,15 @@ impl PositionHelper {
         }
         Some(pos + self.width)
     }
+
+    fn get_borders(&self, pos: usize) -> [Option<usize>; 4] {
+        [
+            self.north(pos),
+            self.east(pos),
+            self.south(pos),
+            self.west(pos),
+        ]
+    }
 }
 
 fn vec2d_to_string(grid: Vec<Vec<String>>) -> String {
@@ -178,15 +187,7 @@ impl Puzzle {
         while !bag.is_empty() {
             let current = bag.pop().unwrap();
 
-            for new_pos in [
-                self.poshelper.west(current),
-                self.poshelper.east(current),
-                self.poshelper.north(current),
-                self.poshelper.south(current),
-            ]
-            .into_iter()
-            .flatten()
-            {
+            for new_pos in self.poshelper.get_borders(current).into_iter().flatten() {
                 if self.is_clear(new_pos) && !visited.contains(&new_pos) {
                     bag.push(new_pos);
                     visited.insert(new_pos);
@@ -212,6 +213,12 @@ impl Puzzle {
     /// Returns `true` if the player can move to `pos` from its current position.
     pub fn can_move_to(&self, pos: usize) -> bool {
         self.movable_positions.contains(&pos)
+    }
+}
+
+impl Puzzle {
+    fn find_possible_pushes(&self) {
+        for pos in self.boxes.iter() {}
     }
 }
 
