@@ -5,7 +5,7 @@ use std::str::FromStr;
 use crate::question::QuestionCollection;
 
 pub struct Config<'a> {
-    filename: &'a String,
+    filename: &'a str,
 }
 
 impl<'a> Config<'a> {
@@ -30,7 +30,18 @@ pub fn read(config: Config) -> Result<QuestionCollection, Box<dyn Error>> {
 }
 
 #[cfg(test)]
-mod test_collection {
+pub mod test_config {
+
+    use super::*;
+
+    pub fn create_config(filename: &str) -> Config {
+        Config { filename }
+    }
+
+    pub fn create_collection(filename: &str) -> QuestionCollection {
+        read(create_config(filename)).unwrap()
+    }
+
     #[test]
     fn test() {}
 }

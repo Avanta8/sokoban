@@ -1,7 +1,7 @@
 #![allow(dead_code)]
-
 use bitflags::bitflags;
 use rustc_hash::FxHashSet;
+use std::fmt;
 
 use crate::question;
 
@@ -9,6 +9,7 @@ bitflags! {
     struct Flags:u8 {
         const WALL     = 0b00001;
         const SPACE    = 0b00010;
+        // Perhaps all these flags underneaths should also contain the flag for SPACE?
         const PLAYER   = 0b00100;
         const BOX      = 0b01000;
         const TARGET   = 0b10000;
@@ -22,6 +23,46 @@ impl Flags {
     /// a space but there is not a player or box above it. (It can be a target.)
     fn is_walkable(&self) -> bool {
         *self | Self::TARGET == Self::WALKABLE
+    }
+    fn is_wall(&self) -> bool {
+        *self == Self::WALL
+    }
+    fn is_player(&self) -> bool {
+        self.contains(Self::PLAYER)
+    }
+    fn is_box(&self) -> bool {
+        self.contains(Self::BOX)
+    }
+    fn is_target(&self) -> bool {
+        self.contains(Self::TARGET)
+    }
+    fn is_placed(&self) -> bool {
+        self.contains(Self::TARGET | Self::BOX)
+    }
+    fn is_space(&self) -> bool {
+        self.contains(Self::SPACE)
+    }
+}
+
+impl fmt::Display for Flags {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let c = if self.is_wall() {
+            '#'
+        } else if self.is_player() {
+            '@'
+        } else if self.is_placed() {
+            '*'
+        } else if self.is_box() {
+            '$'
+        } else if self.is_target() {
+            '.'
+        } else if self.is_space() {
+            ' '
+        } else {
+            unreachable!("Impossible square flag: {:?}", self);
+        };
+
+        write!(f, "{}", c)
     }
 }
 
@@ -58,8 +99,15 @@ impl PositionHelper {
         if pos / self.width + 1 == self.height {
             return None;
         }
-        Some(pos + 1)
+        Some(pos + self.width)
     }
+}
+
+fn vec2d_to_string(grid: Vec<Vec<String>>) -> String {
+    grid.iter()
+        .map(|row| row.join(""))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[derive(Debug, Default)]
@@ -77,6 +125,33 @@ pub struct Puzzle {
     movable_positions: FxHashSet<usize>,
 }
 
+impl fmt::Display for Puzzle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", vec2d_to_string(self.get_2d_grid_vec()))
+    }
+}
+
+impl Puzzle {
+    fn get_2d_grid_vec(&self) -> Vec<Vec<String>> {
+        self.grid
+            .chunks_exact(self.width)
+            .map(|row| row.iter().map(|f| f.to_string()).collect::<Vec<_>>())
+            .collect::<Vec<_>>()
+    }
+
+    /// Returns a string view of the movable positions in the grid.
+    pub fn view_movable_positions(&self) -> String {
+        let mut grid = self.get_2d_grid_vec();
+        for &pos in self.get_movable_positions() {
+            if pos == self.pos {
+                continue;
+            }
+            grid[pos / self.width][pos % self.width] = "+".to_string();
+        }
+        vec2d_to_string(grid)
+    }
+}
+
 impl Puzzle {
     pub fn move_pos(&mut self, pos: usize) -> Result<(), &'static str> {
         if !self.movable_positions.contains(&pos) {
@@ -86,6 +161,10 @@ impl Puzzle {
         self.grid[self.pos] &= !Flags::PLAYER;
         self.grid[pos] |= Flags::PLAYER;
         self.pos = pos;
+
+        // // Slow as it has to dfs all over again. Faster would be know that we can move to
+        // // any position we could have come from.
+        // self.update_movable_positions();
 
         Ok(())
     }
@@ -108,7 +187,7 @@ impl Puzzle {
             .into_iter()
             .flatten()
             {
-                if !visited.contains(&new_pos) {
+                if self.is_clear(new_pos) && !visited.contains(&new_pos) {
                     bag.push(new_pos);
                     visited.insert(new_pos);
                 }
@@ -124,6 +203,10 @@ impl Puzzle {
 
     fn update_movable_positions(&mut self) {
         self.set_movable_positions(self.find_movable_positions())
+    }
+
+    pub fn get_movable_positions(&self) -> &FxHashSet<usize> {
+        &self.movable_positions
     }
 
     /// Returns `true` if the player can move to `pos` from its current position.
@@ -212,13 +295,17 @@ impl Puzzle {
             None => Flags::WALL,
         }
     }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+    pub fn height(&self) -> usize {
+        self.height
+    }
 }
 
-// impl From<&question::Question> for Puzzle {
-//     fn from(question: &question::Question) -> Self {
 impl<Q: std::borrow::Borrow<question::Question>> From<Q> for Puzzle {
     fn from(question: Q) -> Self {
-        println!("In Puzzle::From<Question>");
         let question = question.borrow();
         let (width, height) = (question.width(), question.height());
         let mut grid = Vec::with_capacity(width * height);
@@ -260,5 +347,23 @@ impl<Q: std::borrow::Borrow<question::Question>> From<Q> for Puzzle {
         };
         ret.update_movable_positions();
         ret
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn create_puzzle(filename: &str, idx: usize) -> Puzzle {
+        use crate::reader::test_config::create_collection;
+        (&create_collection(filename)[idx]).into()
+    }
+
+    const FILENAME: &str = "puzzles.txt";
+
+    #[test]
+    fn test_directions() {
+        let puzzle = create_puzzle(FILENAME, 0);
+        println!("{}", puzzle);
     }
 }
