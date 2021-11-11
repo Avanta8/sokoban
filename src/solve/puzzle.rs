@@ -155,6 +155,10 @@ pub struct Puzzle {
 }
 
 impl Puzzle {
+    pub fn grid(&self) -> &Vec<Flags> {
+        &self.grid
+    }
+
     pub fn width(&self) -> usize {
         self.width
     }

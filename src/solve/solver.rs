@@ -2,6 +2,8 @@
 
 use std::collections::VecDeque;
 
+use rustc_hash::FxHashSet;
+
 use super::puzzle::{Flags, Puzzle};
 
 /*
@@ -27,6 +29,7 @@ scenario.
 
 pub fn solve(grid: Puzzle) {
     // let mut bag = vec![grid];
+    let mut visited = FxHashSet::from_iter([grid.grid().clone()]);
     let mut bag = VecDeque::from([grid]);
 
     let mut solved_puzzle = None;
@@ -41,12 +44,17 @@ pub fn solve(grid: Puzzle) {
 
         count += 1;
         if count % 10_000 == 0 {
-            // println!("count: {}", count);
-            // println!(
-            //     "\n-----------------------------------------------------\nLooking at puzzle:\n{}\n",
-            //     puzzle
-            // );
+            println!("\ncount: {}", count);
+            println!(
+                "\n-----------------------------------------------------\nLooking at puzzle:\n{}\n",
+                puzzle
+            );
+            println!("{}", puzzle.view_movable_positions());
         }
+
+        // println!();
+        // println!();
+        // println!("{}", puzzle);
         // println!();
         // println!("{}", puzzle.view_movable_positions());
 
@@ -66,12 +74,20 @@ pub fn solve(grid: Puzzle) {
                     // println!();
                     // println!("{}", new_puzzle.view_movable_positions());
                     // println!("{:?}, {:?}", new_puzzle.targets(), new_puzzle.boxes());
+
+                    if visited.contains(new_puzzle.grid()) {
+                        continue;
+                    }
+
+                    visited.insert(new_puzzle.grid().clone());
                     bag.push_back(new_puzzle);
                 }
             }
         }
     }
 
+    println!("total iterations: {}", count);
+    println!("visited: {}", visited.len());
     if let Some(puzzle) = solved_puzzle {
         println!("Solved:\n{}", puzzle);
     } else {
