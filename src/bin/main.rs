@@ -8,10 +8,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let config = reader::Config::new(&args)?;
 
-    let puzzles = reader::read(config)?;
+    let puzzles = reader::read(&config)?;
 
-    // solve::solve_collection(&puzzles);
-    solve::solve_puzzle(&puzzles[0]);
+    match config.question_number {
+        Some(n) => solve::solve_puzzle(&puzzles[n]),
+        None => solve::solve_collection(&puzzles),
+    }
 
     Ok(())
 }
