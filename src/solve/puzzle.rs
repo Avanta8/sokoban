@@ -1,10 +1,11 @@
-#![allow(dead_code)]
+// #![allow(dead_code)]
 use bitflags::bitflags;
-use rustc_hash::FxHashSet;
-use std::fmt;
+use rustc_hash::{FxHashMap, FxHashSet};
+use std::{collections::VecDeque, fmt};
 
 use crate::question;
 
+#[derive(Clone, Copy, Debug)]
 pub enum Dir {
     North,
     East,
@@ -13,6 +14,10 @@ pub enum Dir {
 }
 
 impl Dir {
+    pub fn iter() -> impl Iterator<Item = Self> {
+        [Self::North, Self::East, Self::South, Self::West].into_iter()
+    }
+
     fn opposite_of(&self) -> Self {
         match self {
             Dir::North => Dir::South,
@@ -24,15 +29,14 @@ impl Dir {
 }
 
 bitflags! {
-    struct Flags:u8 {
+    pub struct Flags:u8 {
         const WALL     = 0b00001;
         const SPACE    = 0b00010;
-        // Perhaps all these flags underneaths should also contain the flag for SPACE?
         const PLAYER   = 0b00100;
         const BOX      = 0b01000;
         const TARGET   = 0b10000;
 
-        const WALKABLE  = Self::SPACE.bits | Self::TARGET.bits;
+        const WALKABLE = Self::SPACE.bits | Self::TARGET.bits | Self::PLAYER.bits;
     }
 }
 
@@ -40,7 +44,7 @@ impl Flags {
     /// Returns `true` if there is nothing on top of the square. ie. If the square is
     /// a space but there is not a player or box above it. (It can be a target.)
     fn is_walkable(&self) -> bool {
-        *self | Self::TARGET == Self::WALKABLE
+        *self | Self::TARGET | Self::PLAYER == Self::WALKABLE
     }
     fn is_wall(&self) -> bool {
         *self == Self::WALL
@@ -84,96 +88,50 @@ impl fmt::Display for Flags {
     }
 }
 
-#[derive(Debug, Default)]
-struct PositionHelper {
-    width: usize,
-    height: usize,
+#[derive(Default)]
+pub struct DirHolder<T> {
+    north: T,
+    south: T,
+    east: T,
+    west: T,
 }
 
-impl PositionHelper {
-    /// Returns the position directly to the west of `pos`.
-    fn west(&self, pos: usize) -> Option<usize> {
-        if pos % self.width == 0 {
-            return None;
-        }
-        Some(pos - 1)
-    }
-
-    /// Returns the position directly to the east of `pos`.
-    fn east(&self, pos: usize) -> Option<usize> {
-        if (pos + 1) % self.width == 0 {
-            return None;
-        }
-        Some(pos + 1)
-    }
-
-    /// Returns the position directly to the north of `pos`.
-    fn north(&self, pos: usize) -> Option<usize> {
-        pos.checked_sub(self.width)
-    }
-
-    /// Returns the position directly to the south of `pos`.
-    fn south(&self, pos: usize) -> Option<usize> {
-        if pos / self.width + 1 == self.height {
-            return None;
-        }
-        Some(pos + self.width)
-    }
-
-    /// This is slow for now.
-    fn shift(&self, mut pos: usize, dir: &Dir, steps: usize) -> Option<usize> {
-        for _ in 0..steps {
-            match self.dir(pos, dir) {
-                Some(p) => pos = p,
-                None => return None,
-            }
-        }
-        Some(pos)
-    }
-
-    fn dir(&self, pos: usize, dir: &Dir) -> Option<usize> {
-        let f = match dir {
-            Dir::North => Self::north,
-            Dir::East => Self::east,
-            Dir::South => Self::south,
-            Dir::West => Self::west,
-        };
-        f(self, pos)
-    }
-
-    fn get_borders(&self, pos: usize) -> impl Iterator<Item = usize> {
+impl<T> DirHolder<T> {
+    pub fn iter(&self) -> impl Iterator<Item = (Dir, &T)> {
         [
-            self.north(pos),
-            self.east(pos),
-            self.south(pos),
-            self.west(pos),
+            (Dir::North, &self.north),
+            (Dir::East, &self.east),
+            (Dir::South, &self.south),
+            (Dir::West, &self.west),
         ]
         .into_iter()
-        .flatten()
     }
-
-    // Returns paris of opposite coords as iterator, but only if they both are Some
-    fn get_pairs(&self, pos: usize) -> impl Iterator<Item = (usize, usize)> {
-        let north = self.north(pos);
-        let east = self.east(pos);
-        let south = self.south(pos);
-        let west = self.west(pos);
-        [(north, south), (south, north), (west, east), (east, west)]
-            .into_iter()
-            .filter_map(|pair| match pair {
-                (Some(a), Some(b)) => Some((a, b)),
-                _ => None,
-            })
-        // [
-        //     Direction::North,
-        //     Direction::South,
-        //     Direction::East,
-        //     Direction::West,
-        // ]
-        // .map(|d| {})
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Dir, &mut T)> {
+        [
+            (Dir::North, &mut self.north),
+            (Dir::East, &mut self.east),
+            (Dir::South, &mut self.south),
+            (Dir::West, &mut self.west),
+        ]
+        .into_iter()
+    }
+    pub fn set(&mut self, dir: Dir, val: T) {
+        match dir {
+            Dir::North => self.north = val,
+            Dir::South => self.south = val,
+            Dir::East => self.east = val,
+            Dir::West => self.west = val,
+        }
     }
 }
 
+/// Joins a 2d vector of strings into a single output string.
+///
+/// Each item of a row is joined without any padding.
+/// Each row is joined by a newline.
+///
+/// Each item should be the same number of characters long, as this
+/// method does not do any padding / formatting.
 fn vec2d_to_string(grid: Vec<Vec<String>>) -> String {
     grid.iter()
         .map(|row| row.join(""))
@@ -181,19 +139,37 @@ fn vec2d_to_string(grid: Vec<Vec<String>>) -> String {
         .join("\n")
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Puzzle {
     grid: Vec<Flags>,
     width: usize,
     height: usize,
     boxes: FxHashSet<usize>,
     targets: FxHashSet<usize>,
-    pos: usize,
+    player_pos: usize,
+    moves: Vec<Dir>,
 
-    poshelper: PositionHelper,
-
+    // poshelper: PositionHelper,
     /// `movable_positions` should always be kept updated.
     movable_positions: FxHashSet<usize>,
+}
+
+impl Puzzle {
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    pub fn boxes(&self) -> &FxHashSet<usize> {
+        &self.boxes
+    }
+
+    pub fn targets(&self) -> &FxHashSet<usize> {
+        &self.targets
+    }
 }
 
 impl fmt::Display for Puzzle {
@@ -203,6 +179,7 @@ impl fmt::Display for Puzzle {
 }
 
 impl Puzzle {
+    /// Returns the grid as a 2d vector of strings corresponding to each flag.
     fn get_2d_grid_vec(&self) -> Vec<Vec<String>> {
         self.grid
             .chunks_exact(self.width)
@@ -213,44 +190,25 @@ impl Puzzle {
     /// Returns a string view of the movable positions in the grid.
     pub fn view_movable_positions(&self) -> String {
         let mut grid = self.get_2d_grid_vec();
-        for &pos in self.get_movable_positions() {
-            if pos == self.pos {
-                continue;
-            }
+        for &pos in self.movable_positions() {
+            // if pos == self.player_pos {
+            //     continue;
+            // }
             grid[pos / self.width][pos % self.width] = "+".to_string();
         }
         vec2d_to_string(grid)
     }
-}
 
-impl Puzzle {
-    pub fn move_pos(&mut self, pos: usize) -> Result<(), &'static str> {
-        if !self.movable_positions.contains(&pos) {
-            return Err("Wanted to move to a position that cannot be reached");
-        }
-
-        self.grid[self.pos] &= !Flags::PLAYER;
-        self.grid[pos] |= Flags::PLAYER;
-        self.pos = pos;
-
-        // // Slow as it has to dfs all over again. Faster would be know that we can move to
-        // // any position we could have come from.
-        // self.update_movable_positions();
-
-        Ok(())
-    }
-}
-
-impl Puzzle {
+    // Computes and returs all the positions the player can move to without pushing any boxes.
     fn find_movable_positions(&self) -> FxHashSet<usize> {
-        let mut bag = vec![self.pos];
+        let mut bag = vec![self.player_pos];
         let mut visited = FxHashSet::from_iter(bag.clone());
 
         while !bag.is_empty() {
             let current = bag.pop().unwrap();
 
-            for new_pos in self.poshelper.get_borders(current) {
-                if self.is_clear(new_pos) && !visited.contains(&new_pos) {
+            for new_pos in self.pos_borders(current) {
+                if self.grid[new_pos].is_walkable() && !visited.contains(&new_pos) {
                     bag.push(new_pos);
                     visited.insert(new_pos);
                 }
@@ -260,151 +218,240 @@ impl Puzzle {
         visited
     }
 
-    fn set_movable_positions(&mut self, positions: FxHashSet<usize>) {
-        self.movable_positions = positions
+    pub fn update_movable_positions(&mut self) {
+        self.movable_positions = self.find_movable_positions()
     }
 
-    fn update_movable_positions(&mut self) {
-        self.set_movable_positions(self.find_movable_positions())
-    }
-
-    pub fn get_movable_positions(&self) -> &FxHashSet<usize> {
+    pub fn movable_positions(&self) -> &FxHashSet<usize> {
         &self.movable_positions
     }
+}
 
-    /// Returns `true` if the player can move to `pos` from its current position.
-    pub fn can_move_to(&self, pos: usize) -> bool {
+impl Puzzle {
+    /// Returns the directions each box can be pushed in, and the distance they can be moved in that direction.
+    pub fn find_all_pushes(&self) -> impl Iterator<Item = (usize, DirHolder<usize>)> + '_ {
+        self.boxes.iter().map(|&box_pos| {
+            let mut possible_steps = DirHolder::<usize>::default();
+
+            possible_steps.iter_mut().for_each(|(dir, steps)| {
+                // Check that the push square is within bounds.
+                // println!("{:?}", dir);
+                if let Some(push_pos) = self.get_push_pos(box_pos, dir) {
+                    // Check that the push square can be walked on and reached.
+                    // println!(
+                    //     "sdfdsf {:?}, is walkabl: {}, can move to: {}",
+                    //     dir,
+                    //     self.grid[push_pos].is_walkable(),
+                    //     self.can_move_to(push_pos)
+                    // );
+                    if self.grid[push_pos].is_walkable() && self.can_move_to(push_pos) {
+                        // println!("able {:?}", dir);
+                        let mut new_pos = box_pos;
+                        while let Some(p) = self.pos_move(new_pos, dir, 1) {
+                            if !self.grid[p].is_walkable() {
+                                break;
+                            }
+
+                            new_pos = p;
+                            *steps += 1;
+                        }
+                    }
+                }
+            });
+            (box_pos, possible_steps)
+        })
+    }
+
+    /// Returns true if the player can move to `pos`.
+    fn can_move_to(&self, pos: usize) -> bool {
         self.movable_positions.contains(&pos)
     }
-}
 
-impl Puzzle {
-    /// The move must be valid. Otherwise can result in undefined behaviour.
-    pub fn make_push(&mut self, pos: usize, dir: &Dir, steps: usize) {
+    /// Makes the move. The move must be valid.
+    ///
+    /// `pos` is the position of the box that should be moved.
+    pub fn move_box(&mut self, pos: usize, dir: Dir, steps: usize) {
         assert!(
-            self.grid[pos].is_box(),
-            "Tried to move position that wasn't a box. pos: {}",
+            self.boxes.contains(&pos),
+            "pos {} is not in the boxes.",
             pos
         );
-        assert!(steps > 0, "can't move no steps");
+        assert!(
+            self.grid[pos].is_box(),
+            "pos {} is not a box in the grid. But it does appear in the boxes set.",
+            pos
+        );
 
-        let new_player_pos = self
-            .poshelper
-            .shift(pos, dir, steps - 1)
-            .expect("player wanted to move to invalid position");
+        let push_pos = self.get_push_pos(pos, dir).unwrap_or_else(|| {
+            panic!("The push square of a box on pos: {} is out of bounds.", pos)
+        });
+        self.move_to(push_pos);
+
         let new_box_pos = self
-            .poshelper
-            .shift(new_player_pos, dir, 1)
-            .expect("box wanted to move to invalid position.");
+            .pos_move(pos, dir, steps)
+            .expect("was not a valid move");
+        self.update_player_pos(
+            self.get_push_pos(new_box_pos, dir)
+                .expect("was not a valid move. Player ended up out of bounds."),
+        );
+        self.update_box_pos(pos, new_box_pos);
 
-        self.grid[pos] &= !Flags::BOX;
-        self.grid[new_box_pos] &= Flags::BOX;
-
-        // self.grid[]
+        self.update_movable_positions();
     }
-}
 
-impl Puzzle {
-    fn find_possible_pushes(&self) -> Vec<(usize, usize)> {
-        let mut possible = vec![]; // (pos, new_pos)
-        for &pos in self.boxes.iter() {
-            for (from, to) in self.poshelper.get_pairs(pos) {
-                if !self.movable_positions.contains(&from) {
-                    continue;
+    /// Moves the player position to `pos`.
+    pub fn move_to(&mut self, target: usize) {
+        assert!(
+            self.can_move_to(target),
+            "pos: {} cannot be moved to without pushing any box.",
+            target
+        );
+
+        let mut bag = VecDeque::new();
+        bag.push_back(target);
+
+        let mut visited = FxHashMap::<usize, Option<Dir>>::default();
+        visited.insert(target, None);
+
+        while let Some(current) = bag.pop_front() {
+            if current == target {
+                break;
+            }
+
+            for (dir, new_pos) in self.pos_borders_with_dirs(target) {
+                if self.grid[new_pos].is_walkable() && !visited.contains_key(&new_pos) {
+                    bag.push_back(new_pos);
+                    visited.insert(new_pos, Some(dir));
                 }
-                possible.push((pos, to));
             }
         }
-        possible
-    }
-}
 
-impl Puzzle {
-    /// Returns `true` if a box placed on `pos` could be pushed to the west.
-    ///
-    /// There doesn't have to be a box currently placed on `pos`.
-    pub fn can_push_west(&self, pos: usize) -> bool {
-        let east = self.poshelper.east(pos);
-        east.is_some() && self.is_clear_west(pos) && self.can_move_to(east.unwrap())
-    }
-    /// Returns `true` if a box placed on `pos` could be pushed to the east.
-    ///
-    /// There doesn't have to be a box currently placed on `pos`.
-    pub fn can_push_east(&self, pos: usize) -> bool {
-        let west = self.poshelper.west(pos);
-        west.is_some() && self.is_clear_east(pos) && self.can_move_to(west.unwrap())
-    }
-    /// Returns `true` if a box placed on `pos` could be pushed to the north.
-    ///
-    /// There doesn't have to be a box currently placed on `pos`.
-    pub fn can_push_north(&self, pos: usize) -> bool {
-        let south = self.poshelper.south(pos);
-        south.is_some() && self.is_clear_north(pos) && self.can_move_to(south.unwrap())
-    }
-    /// Returns `true` if a box placed on `pos` could be pushed to the south.
-    ///
-    /// There doesn't have to be a box currently placed on `pos`.
-    pub fn can_push_south(&self, pos: usize) -> bool {
-        let north = self.poshelper.north(pos);
-        north.is_some() && self.is_clear_south(pos) && self.can_move_to(north.unwrap())
-    }
-}
+        assert!(
+            visited.contains_key(&target),
+            "pos: {} was in the movable positions, but it wasn't acutally able to be moved to",
+            target
+        );
 
-impl Puzzle {
-    /// Returns `true` if there is nothing on top of the square corresponding to `pos`.
-    pub fn is_clear(&self, pos: usize) -> bool {
-        self.grid[pos].is_walkable()
-    }
-
-    /// Returns `true` if there is nothing on top of the square directly to the west of `pos`.
-    pub fn is_clear_west(&self, pos: usize) -> bool {
-        self.west_of(pos).is_walkable()
-    }
-    /// Returns `true` if there is nothing on top of the square directly to the east of `pos`.
-    pub fn is_clear_east(&self, pos: usize) -> bool {
-        self.east_of(pos).is_walkable()
-    }
-    /// Returns `true` if there is nothing on top of the square directly to the north of `pos`.
-    pub fn is_clear_north(&self, pos: usize) -> bool {
-        self.north_of(pos).is_walkable()
-    }
-    /// Returns `true` if there is nothing on top of the square directly to the south of `pos`.
-    pub fn is_clear_south(&self, pos: usize) -> bool {
-        self.south_of(pos).is_walkable()
-    }
-
-    /// Returns the square directly to the west of `pos`. A wall is returned for an out of
-    /// bounds position.
-    fn west_of(&self, pos: usize) -> Flags {
-        self._of_helper(self.poshelper.west(pos))
-    }
-    /// Returns the square directly to the east of `pos`. A wall is returned for an out of
-    /// bounds position.
-    fn east_of(&self, pos: usize) -> Flags {
-        self._of_helper(self.poshelper.east(pos))
-    }
-    /// Returns the square directly to the north of `pos`. A wall is returned for an out of
-    /// bounds position.
-    fn north_of(&self, pos: usize) -> Flags {
-        self._of_helper(self.poshelper.north(pos))
-    }
-    /// Returns the square directly to the south of `pos`. A wall is returned for an out of
-    /// bounds position.
-    fn south_of(&self, pos: usize) -> Flags {
-        self._of_helper(self.poshelper.south(pos))
-    }
-    fn _of_helper(&self, new_pos: Option<usize>) -> Flags {
-        match new_pos {
-            Some(pos) => self.grid[pos],
-            None => Flags::WALL,
+        let mut moves = VecDeque::new();
+        let mut pos = target;
+        while let Some(&Some(dir)) = visited.get(&pos) {
+            moves.push_back(dir);
+            pos = self
+                .pos_move(pos, dir.opposite_of(), 1)
+                .expect("Rebuilding path encountered out of bounds position.");
         }
+
+        // Not required as of yet.
+        // BUT MAY DO IN THE FUTURE!!
+        // self.update_player_pos(target);
+        // self.update_movable_positions();
+
+        self.add_moves(moves);
     }
 
-    pub fn width(&self) -> usize {
-        self.width
+    fn update_box_pos(&mut self, old_pos: usize, new_pos: usize) {
+        assert!(
+            self.grid[old_pos].is_box(),
+            "old_pos was {} but that square isn't a box on the grid.",
+            old_pos
+        );
+        assert!(
+            self.boxes.contains(&old_pos),
+            "old_pas was {}. It was a box on the grid. But wasn't a box in self.boxes",
+            old_pos
+        );
+
+        self.grid[old_pos] &= !Flags::BOX;
+        self.grid[new_pos] |= Flags::BOX;
+        self.boxes.remove(&old_pos);
+        self.boxes.insert(new_pos);
     }
-    pub fn height(&self) -> usize {
-        self.height
+
+    fn update_player_pos(&mut self, new_pos: usize) {
+        assert!(
+            self.grid[self.player_pos].is_player(),
+            "Player should be on pos: {} but it wasn't there in the grid.",
+            self.player_pos
+        );
+
+        self.grid[self.player_pos] &= !Flags::PLAYER;
+        self.grid[new_pos] |= Flags::PLAYER;
+        self.player_pos = new_pos;
+    }
+
+    fn add_moves(&mut self, moves: impl IntoIterator<Item = Dir>) {
+        self.moves.extend(moves);
+    }
+
+    /// Returns the position the player would need to stand on to push a box placed
+    /// on `pos` in `dir` direction, or None if the position is out of bounds.
+    fn get_push_pos(&self, pos: usize, dir: Dir) -> Option<usize> {
+        self.pos_move(pos, dir.opposite_of(), 1)
+    }
+}
+
+impl Puzzle {
+    pub fn is_solved(&self) -> bool {
+        self.targets
+            .iter()
+            .all(|target| self.boxes.contains(target))
+    }
+
+    /// Retuns the position that you would end up on after moving `steps` in `dir` direction startin from `pos`.
+    /// Returns `None` if the resulting position would be out of bounds.
+    fn pos_move(&self, mut pos: usize, dir: Dir, steps: usize) -> Option<usize> {
+        let f = match dir {
+            Dir::North => Self::pos_north,
+            Dir::South => Self::pos_south,
+            Dir::East => Self::pos_east,
+            Dir::West => Self::pos_west,
+        };
+        for _ in 0..steps {
+            match f(self, pos) {
+                Some(p) => pos = p,
+                None => return None,
+            }
+        }
+        Some(pos)
+    }
+    fn pos_north(&self, pos: usize) -> Option<usize> {
+        pos.checked_sub(self.width)
+    }
+    fn pos_south(&self, pos: usize) -> Option<usize> {
+        if pos / self.width + 1 == self.height {
+            return None;
+        }
+        Some(pos + self.width)
+    }
+    fn pos_east(&self, pos: usize) -> Option<usize> {
+        if (pos + 1) % self.width == 0 {
+            return None;
+        }
+        Some(pos + 1)
+    }
+    fn pos_west(&self, pos: usize) -> Option<usize> {
+        if pos % self.width == 0 {
+            return None;
+        }
+        Some(pos - 1)
+    }
+    /// Returns an iterator of all the bordering positions around `pos` that are
+    /// not out of bounds. (Doesn't check what the square acutally is. Just checks that
+    /// it isn't out of bounds.)
+    fn pos_borders(&self, pos: usize) -> impl Iterator<Item = usize> {
+        [
+            self.pos_north(pos),
+            self.pos_east(pos),
+            self.pos_south(pos),
+            self.pos_west(pos),
+        ]
+        .into_iter()
+        .flatten()
+    }
+    /// Returns all the positions around `pos` that are not out of bounds as an iterator of
+    /// tuples `(direction moved, resultant position)`.
+    fn pos_borders_with_dirs(&self, pos: usize) -> impl Iterator<Item = (Dir, usize)> + '_ {
+        Dir::iter().filter_map(move |dir| self.pos_move(pos, dir, 1).map(|new_pos| (dir, new_pos)))
     }
 }
 
@@ -445,8 +492,7 @@ impl<Q: std::borrow::Borrow<question::Question>> From<Q> for Puzzle {
             height,
             boxes,
             targets,
-            pos: start,
-            poshelper: PositionHelper { height, width },
+            player_pos: start,
             ..Self::default()
         };
         ret.update_movable_positions();
