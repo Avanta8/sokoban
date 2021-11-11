@@ -115,6 +115,7 @@ impl<T> DirHolder<T> {
         ]
         .into_iter()
     }
+    #[allow(dead_code)]
     pub fn set(&mut self, dir: Dir, val: T) {
         match dir {
             Dir::North => self.north = val,
@@ -167,10 +168,12 @@ impl Puzzle {
         self.height
     }
 
+    #[allow(dead_code)]
     pub fn boxes(&self) -> &FxHashSet<usize> {
         &self.boxes
     }
 
+    #[allow(dead_code)]
     pub fn targets(&self) -> &FxHashSet<usize> {
         &self.targets
     }
