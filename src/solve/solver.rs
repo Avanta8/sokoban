@@ -18,15 +18,6 @@ exits are also blocked), then we know this is incorrect already.
 If a box is pushed towards a wall, we know we can never get it off the wall, unless the wall goes more out.
 */
 
-/*
-BUG:
-If a player in standing in front of a box. Then that box will not be able to be moved that way
-because it will seem like the player is blocking it, even though they would have to move to being it
-in order to move it.
-However, we should be able to just treat the square the player is standing on as also walkable for this
-scenario.
-*/
-
 pub fn solve(grid: Puzzle) {
     // let mut bag = vec![grid];
     let mut visited = FxHashSet::from_iter([grid.grid().clone()]);
