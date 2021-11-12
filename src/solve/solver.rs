@@ -1,10 +1,9 @@
 #![allow(dead_code, unused_imports)]
 
+use rustc_hash::FxHashSet;
 use std::collections::VecDeque;
 
-use rustc_hash::FxHashSet;
-
-use super::puzzle::{Flags, Puzzle};
+use super::puzzle::Puzzle;
 
 /*
 If we push a box to a place where can no longer be pushed from any direction,

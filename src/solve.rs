@@ -1,7 +1,9 @@
 // #![allow(unused_imports, dead_code)]
 
+mod directions;
 mod puzzle;
 mod solver;
+mod squares;
 
 use crate::question::{Question, QuestionCollection};
 
