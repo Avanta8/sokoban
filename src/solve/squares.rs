@@ -9,16 +9,17 @@ bitflags! {
         const BOX      = 0b01000;
         const TARGET   = 0b10000;
 
-        const WALKABLE = Self::SPACE.bits | Self::TARGET.bits | Self::PLAYER.bits;
+        // const WALKABLE = Self::SPACE.bits | Self::TARGET.bits | Self::PLAYER.bits;
     }
 }
 
 impl Flags {
     /// Returns `true` if there is nothing on top of the square. ie. If the square is
     /// a space but there is not a box above it. (It can be a target.)
-    pub fn is_walkable(&self) -> bool {
-        *self | Self::TARGET | Self::PLAYER == Self::WALKABLE
-    }
+
+    // pub fn is_walkable(&self) -> bool {
+    //     *self | Self::TARGET | Self::PLAYER == Self::WALKABLE
+    // }
     pub fn is_wall(&self) -> bool {
         *self == Self::WALL
     }

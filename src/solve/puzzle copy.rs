@@ -1,7 +1,5 @@
 // #![allow(dead_code)]
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::BTreeSet;
-use std::rc::Rc;
 use std::{collections::VecDeque, fmt};
 
 use crate::question;
@@ -25,12 +23,10 @@ fn vec2d_to_string(grid: Vec<Vec<String>>) -> String {
 
 #[derive(Debug, Default, Clone)]
 pub struct Puzzle {
-    // grid: Vec<Flags>,
-    grid: Rc<Vec<Flags>>,
+    grid: Vec<Flags>,
     width: usize,
     height: usize,
     boxes: FxHashSet<usize>,
-    // boxes: BTreeSet<usize>,
     targets: FxHashSet<usize>,
     player_pos: usize,
     moves: Vec<Dir>,
@@ -53,13 +49,10 @@ impl Puzzle {
         self.height
     }
 
-    // #[allow(dead_code)]
+    #[allow(dead_code)]
     pub fn boxes(&self) -> &FxHashSet<usize> {
         &self.boxes
     }
-    // pub fn boxes(&self) -> &BTreeSet<usize> {
-    //     &self.boxes
-    // }
 
     #[allow(dead_code)]
     pub fn targets(&self) -> &FxHashSet<usize> {
@@ -103,7 +96,7 @@ impl Puzzle {
             let current = bag.pop().unwrap();
 
             for new_pos in self.pos_borders(current) {
-                if self.is_pos_walkable(new_pos) && !visited.contains(&new_pos) {
+                if self.grid[new_pos].is_walkable() && !visited.contains(&new_pos) {
                     bag.push(new_pos);
                     visited.insert(new_pos);
                 }
@@ -143,8 +136,8 @@ impl Puzzle {
                 let b = self.pos_move(box_pos, dir.opposite_of(), 1);
                 a.is_some()
                     && b.is_some()
-                    && self.is_pos_walkable(a.unwrap())
-                    && self.is_pos_walkable(b.unwrap())
+                    && self.grid[a.unwrap()].is_walkable()
+                    && self.grid[b.unwrap()].is_walkable()
             })
         })
     }
@@ -163,11 +156,17 @@ impl Puzzle {
                 // println!("{:?}", dir);
                 if let Some(push_pos) = self.get_push_pos(box_pos, dir) {
                     // Check that the push square can be walked on and reached.
-                    if self.is_pos_walkable(push_pos) && self.can_move_to(push_pos) {
+                    // println!(
+                    //     "dir: {:?}, is walkable: {}, can move to: {}",
+                    //     dir,
+                    //     self.grid[push_pos].is_walkable(),
+                    //     self.can_move_to(push_pos)
+                    // );
+                    if self.grid[push_pos].is_walkable() && self.can_move_to(push_pos) {
                         // println!("able {:?}", dir);
                         let mut new_pos = box_pos;
                         while let Some(p) = self.pos_move(new_pos, dir, 1) {
-                            if !self.is_pos_walkable(p) {
+                            if !self.grid[p].is_walkable() {
                                 break;
                             }
 
@@ -193,6 +192,11 @@ impl Puzzle {
         assert!(
             self.boxes.contains(&pos),
             "pos {} is not in the boxes.",
+            pos
+        );
+        assert!(
+            self.grid[pos].is_box(),
+            "pos {} is not a box in the grid. But it does appear in the boxes set.",
             pos
         );
 
@@ -233,7 +237,7 @@ impl Puzzle {
             }
 
             for (dir, new_pos) in self.pos_borders_with_dirs(target) {
-                if self.is_pos_walkable(new_pos) && !visited.contains_key(&new_pos) {
+                if self.grid[new_pos].is_walkable() && !visited.contains_key(&new_pos) {
                     bag.push_back(new_pos);
                     visited.insert(new_pos, Some(dir));
                 }
@@ -265,16 +269,31 @@ impl Puzzle {
 
     fn update_box_pos(&mut self, old_pos: usize, new_pos: usize) {
         assert!(
+            self.grid[old_pos].is_box(),
+            "old_pos was {} but that square isn't a box on the grid.",
+            old_pos
+        );
+        assert!(
             self.boxes.contains(&old_pos),
             "old_pas was {}. It was a box on the grid. But wasn't a box in self.boxes",
             old_pos
         );
 
+        self.grid[old_pos] &= !Flags::BOX;
+        self.grid[new_pos] |= Flags::BOX;
         self.boxes.remove(&old_pos);
         self.boxes.insert(new_pos);
     }
 
     fn update_player_pos(&mut self, new_pos: usize) {
+        assert!(
+            self.grid[self.player_pos].is_player(),
+            "Player should be on pos: {} but it wasn't there in the grid.",
+            self.player_pos
+        );
+
+        self.grid[self.player_pos] &= !Flags::PLAYER;
+        self.grid[new_pos] |= Flags::PLAYER;
         self.player_pos = new_pos;
     }
 
@@ -286,16 +305,6 @@ impl Puzzle {
     /// on `pos` in `dir` direction, or None if the position is out of bounds.
     fn get_push_pos(&self, pos: usize, dir: Dir) -> Option<usize> {
         self.pos_move(pos, dir.opposite_of(), 1)
-    }
-
-    fn is_pos_walkable(&self, pos: usize) -> bool {
-        self.grid[pos].is_space() && !self.boxes.contains(&pos)
-    }
-
-    pub fn get_encoding(&self) -> Vec<usize> {
-        let mut v = self.boxes.iter().copied().collect::<Vec<_>>();
-        v.push(self.player_pos);
-        v
     }
 }
 
@@ -379,21 +388,26 @@ impl<Q: std::borrow::Borrow<question::Question>> From<Q> for Puzzle {
         }
 
         let start = question.start().to_usize(width);
+        grid[start] |= Flags::PLAYER;
 
-        let mapper = |it: &std::collections::HashSet<question::Position>| -> FxHashSet<usize> {
-            it.iter()
-                .map(|p| p.to_usize(width))
-                .collect::<FxHashSet<_>>()
-        };
+        let mut mapper =
+            |it: &std::collections::HashSet<question::Position>, flag: Flags| -> FxHashSet<usize> {
+                it.iter()
+                    .map(|p| {
+                        let idx = p.to_usize(width);
+                        grid[idx] |= flag; // add the flag to the corresponding square on the grid.
+                        idx
+                    })
+                    .collect::<FxHashSet<_>>()
+            };
 
-        let boxes = mapper(question.boxes());
-        let targets = mapper(question.targets());
+        let boxes = mapper(question.boxes(), Flags::BOX);
+        let targets = mapper(question.targets(), Flags::TARGET);
 
         let mut ret = Self {
-            grid: Rc::new(grid),
+            grid,
             width,
             height,
-            // boxes: BTreeSet::from_iter(boxes.into_iter()),
             boxes,
             targets,
             player_pos: start,

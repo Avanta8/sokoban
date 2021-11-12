@@ -3,3 +3,5 @@ Cargo.lock
 /puzzles
 output.txt
 untracked
+in
+out

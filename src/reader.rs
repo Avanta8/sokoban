@@ -10,7 +10,6 @@ pub struct Config<'a> {
 }
 
 impl<'a> Config<'a> {
-    // pub fn new(args: &'a [String]) -> Result<Config, String> {
     pub fn new(args: &'a [String]) -> Result<Config, Box<dyn Error>> {
         if args.len() <= 1 || args.len() > 3 {
             return Err(format!(
@@ -35,7 +34,6 @@ pub fn read(config: &Config) -> Result<QuestionCollection, Box<dyn Error>> {
     let contents = fs::read_to_string(filepath)?;
     let puzzles = QuestionCollection::from_str(&contents)?;
 
-    // todo!()
     Ok(puzzles)
 }
 
