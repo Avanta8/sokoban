@@ -42,7 +42,7 @@ bitflags! {
 
 impl Flags {
     /// Returns `true` if there is nothing on top of the square. ie. If the square is
-    /// a space but there is not a player or box above it. (It can be a target.)
+    /// a space but there is not a box above it. (It can be a target.)
     fn is_walkable(&self) -> bool {
         *self | Self::TARGET | Self::PLAYER == Self::WALKABLE
     }
@@ -88,7 +88,7 @@ impl fmt::Display for Flags {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DirHolder<T> {
     north: T,
     south: T,
@@ -234,9 +234,39 @@ impl Puzzle {
     }
 }
 
+// #[allow(dead_code)]
 impl Puzzle {
+    /// Returns true if the box is touching a wall and cannot be moved away from it.
+    pub fn is_attatched_to_wall(&self, pos: usize) -> bool {
+        todo!()
+    }
+
+    /// Returns true if there is any box that can never be moved.
+    ///
+    /// THIS FUNTION IS NOT CORRECT. EVEN IF A BOX IS BLOCKED. IF A BOX IS BLOCKING A BOX
+    /// BUT CAN BE MOVED OUT OF THE WAY, THEN IT ISN'T ACTUALLY BLOCKED.
+    ///
+    /// Also, they don't have to be touching. Eg. two blocks in a tunnel (they don't yet have to be touching but you
+    /// can never get to the other block.)
+    pub fn check_if_any_box_is_blocked(&self) -> bool {
+        self.boxes.iter().all(|&box_pos| {
+            [Dir::North, Dir::West].iter().any(|&dir| {
+                let a = self.pos_move(box_pos, dir, 1);
+                let b = self.pos_move(box_pos, dir.opposite_of(), 1);
+                a.is_some()
+                    && b.is_some()
+                    && self.grid[a.unwrap()].is_walkable()
+                    && self.grid[b.unwrap()].is_walkable()
+            })
+        })
+    }
+
     /// Returns the directions each box can be pushed in, and the distance they can be moved in that direction.
-    pub fn find_all_pushes(&self) -> impl Iterator<Item = (usize, DirHolder<usize>)> + '_ {
+    /// The player must be able to reach the position required to move the box without having to push
+    /// anything to get there.
+    pub fn find_all_valid_pushes(
+        &self,
+    ) -> impl Iterator<Item = (usize, DirHolder<usize>)> + Clone + '_ {
         self.boxes.iter().map(|&box_pos| {
             let mut possible_steps = DirHolder::<usize>::default();
 
@@ -246,7 +276,7 @@ impl Puzzle {
                 if let Some(push_pos) = self.get_push_pos(box_pos, dir) {
                     // Check that the push square can be walked on and reached.
                     // println!(
-                    //     "sdfdsf {:?}, is walkabl: {}, can move to: {}",
+                    //     "dir: {:?}, is walkable: {}, can move to: {}",
                     //     dir,
                     //     self.grid[push_pos].is_walkable(),
                     //     self.can_move_to(push_pos)

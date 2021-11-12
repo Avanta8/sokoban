@@ -18,10 +18,25 @@ exits are also blocked), then we know this is incorrect already.
 If a box is pushed towards a wall, we know we can never get it off the wall, unless the wall goes more out.
 */
 
-pub fn solve(grid: Puzzle) {
+/*
+After making a move, analyse it simply.
+Only need to consider the box that was just moved, and the ones now connecting to it.
+If the box was move into a corner that doesn't contain a target, then we instantly know that this
+is an incorrect solution.
+
+If the box was moved so that it is now adjacent to a wall, if the wall does not go 'outwards' again, and
+there are more boxes than target adjacent to that wall then we know this is incorrect.
+
+If a box is pushed to that it is now connected to one or more boxes, and none of these connected boxes can be pushed,
+then we know this is incorrect. We could do some caching - of all the possible moves of all the boxes, and see if
+the new position of the box would make is so that there are no moves left for any of them. Implementing this would
+also implement #1.
+*/
+
+pub fn solve(inital_puzzle: Puzzle) {
     // let mut bag = vec![grid];
-    let mut visited = FxHashSet::from_iter([grid.grid().clone()]);
-    let mut bag = VecDeque::from([grid]);
+    let mut visited = FxHashSet::from_iter([inital_puzzle.grid().clone()]);
+    let mut bag = VecDeque::from([inital_puzzle]);
 
     let mut solved_puzzle = None;
 
@@ -54,7 +69,21 @@ pub fn solve(grid: Puzzle) {
             break;
         }
 
-        for (pos, dirs) in puzzle.find_all_pushes() {
+        // for (pos, dirs) in puzzle.find_all_pushes() {
+        // let all_pushes = puzzle.find_all_valid_pushes();
+        // if all_pushes
+        //     .clone()
+        //     .any(|(_, dirs)| dirs.iter().all(|(_, steps)| *steps == 0))
+        // {
+        //     continue;
+        // }
+
+        if puzzle.check_if_any_box_is_blocked() {
+            continue;
+        }
+
+        // for (pos, dirs) in all_pushes {
+        for (pos, dirs) in puzzle.find_all_valid_pushes() {
             for (dir, &max_steps) in dirs.iter() {
                 // println!();
                 // println!("dir: {:?}, max steps: {}", dir, max_steps);
