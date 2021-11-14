@@ -3,6 +3,8 @@
 use rustc_hash::FxHashSet;
 use std::collections::VecDeque;
 
+use crate::solve::expansions::ExpansionsHelper;
+
 use super::puzzle::Puzzle;
 
 /*
@@ -35,6 +37,7 @@ also implement #1.
 pub fn solve(inital_puzzle: Puzzle) {
     // let mut bag = vec![grid];
     // let mut visited = FxHashSet::from_iter([inital_puzzle.boxes().clone()]);
+
     let mut visited = FxHashSet::from_iter([inital_puzzle.get_encoding()]);
     let mut bag = VecDeque::from([inital_puzzle]);
 
@@ -49,12 +52,10 @@ pub fn solve(inital_puzzle: Puzzle) {
         // }
 
         count += 1;
-        if count % 10_000 == 0 {
-            // println!("\ncount: {}", count);
-            // println!(
-            //     "\n-----------------------------------------------------\nLooking at puzzle:\n{}\n",
-            //     puzzle
-            // );
+        // if count % 10_000 == 0 {
+        if count % 1 == 0 {
+            // println!("\n{} count: {} {}", "-".repeat(30), count, "-".repeat(30));
+            // println!("Looking at puzzle:\n{}\n", puzzle);
             // println!("{}", puzzle.view_movable_positions());
         }
 
@@ -67,6 +68,21 @@ pub fn solve(inital_puzzle: Puzzle) {
         if puzzle.is_solved() {
             solved_puzzle = Some(puzzle);
             break;
+        }
+
+        // let expansions = ExpansionsHelper::find_expansions(
+        //     puzzle.find_all_pushes(false).collect::<Vec<_>>(),
+        //     puzzle.movable_positions(),
+        // );
+
+        for new_puzzle in puzzle.find_expansions() {
+            let encoding = new_puzzle.get_encoding();
+            if visited.contains(&encoding) {
+                continue;
+            }
+
+            visited.insert(encoding);
+            bag.push_back(new_puzzle);
         }
 
         // for (pos, dirs) in puzzle.find_all_pushes() {
@@ -83,30 +99,30 @@ pub fn solve(inital_puzzle: Puzzle) {
         // }
 
         // for (pos, dirs) in all_pushes {
-        for (pos, dirs) in puzzle.find_all_valid_pushes() {
-            for (dir, &max_steps) in dirs.iter() {
-                // println!();
-                // println!("dir: {:?}, max steps: {}", dir, max_steps);
-                for steps in 1..=max_steps {
-                    // println!("{}", steps);
-                    let mut new_puzzle = puzzle.clone();
-                    new_puzzle.move_box(pos, dir, steps);
-                    // println!("{}", new_puzzle);
-                    // println!();
-                    // println!("{}", new_puzzle.view_movable_positions());
-                    // println!("{:?}, {:?}", new_puzzle.targets(), new_puzzle.boxes());
+        // for (pos, dirs) in puzzle.find_all_valid_pushes() {
+        //     for (dir, &max_steps) in dirs.iter() {
+        //         // println!();
+        //         // println!("dir: {:?}, max steps: {}", dir, max_steps);
+        //         for steps in 1..=max_steps {
+        //             // println!("{}", steps);
+        //             let mut new_puzzle = puzzle.clone();
+        //             new_puzzle.move_box(pos, dir, steps);
+        //             // println!("{}", new_puzzle);
+        //             // println!();
+        //             // println!("{}", new_puzzle.view_movable_positions());
+        //             // println!("{:?}, {:?}", new_puzzle.targets(), new_puzzle.boxes());
 
-                    let encoding = new_puzzle.get_encoding();
+        //             let encoding = new_puzzle.get_encoding();
 
-                    if visited.contains(&encoding) {
-                        continue;
-                    }
+        //             if visited.contains(&encoding) {
+        //                 continue;
+        //             }
 
-                    visited.insert(encoding);
-                    bag.push_back(new_puzzle);
-                }
-            }
-        }
+        //             visited.insert(encoding);
+        //             bag.push_back(new_puzzle);
+        //         }
+        //     }
+        // }
     }
 
     println!("total iterations: {}", count);
@@ -115,6 +131,5 @@ pub fn solve(inital_puzzle: Puzzle) {
         println!("Solved:\n{}", puzzle);
     } else {
         println!("unsolved....");
-        unreachable!()
     }
 }

@@ -1,6 +1,9 @@
 // #![allow(unused_imports, dead_code)]
+// #![allow(warnings)]
 
 mod directions;
+mod expansions;
+mod puller;
 mod puzzle;
 mod solver;
 mod squares;
@@ -16,10 +19,10 @@ pub fn solve_collection(questions: &QuestionCollection) {
 pub fn solve_puzzle(question: &Question) {
     let puzzle = puzzle::Puzzle::from(question);
 
+    println!("\n{}", "-".repeat(50));
     println!("Puzzle:\n{}", puzzle);
-    println!("{:?}", puzzle.movable_positions());
-    println!("{}, {}", puzzle.width(), puzzle.height());
-    println!("{}", puzzle.view_movable_positions());
+    // println!("movable_positions:\n{}", puzzle.view_movable_positions());
+    println!("valid positions:\n{}", puzzle.view_valid_positions());
 
     solver::solve(puzzle);
 }
