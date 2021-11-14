@@ -17,7 +17,7 @@ use super::squares::Flags;
 ///
 /// Each item should be the same number of characters long, as this
 /// method does not do any padding / formatting.
-fn vec2d_to_string(grid: Vec<Vec<String>>) -> String {
+fn vec2d_to_string(grid: Vec<Vec<&str>>) -> String {
     grid.iter()
         .map(|row| row.join(""))
         .collect::<Vec<_>>()
@@ -35,10 +35,6 @@ pub struct Puzzle {
     moves: Vec<Dir>,
 
     poshelper: Rc<PosHelper>,
-
-    /// This may include some positions that are acutally invalid. However, we know for sure
-    /// that if a box moves outside these positions, then the state is unsolvable.
-    valid_positions: Rc<FxHashSet<usize>>,
 
     /// `movable_positions` should always be kept updated.
     movable_positions: FxHashSet<usize>,
@@ -78,24 +74,50 @@ impl fmt::Display for Puzzle {
 
 impl Puzzle {
     /// Returns the grid as a 2d vector of strings corresponding to each flag.
-    fn get_2d_grid_vec(&self) -> Vec<Vec<String>> {
-        let mut grid = (*self.grid).clone();
-        for &p in self.boxes.iter() {
-            grid[p] |= Flags::BOX;
+    fn get_2d_grid_vec(&self) -> Vec<Vec<&str>> {
+        // let mut grid = (*self.grid).clone();
+        // for &p in self.boxes.iter() {
+        //     grid[p] |= Flags::BOX;
+        // }
+        // for &p in self.targets.iter() {
+        //     grid[p] |= Flags::TARGET;
+        // }
+        // grid[self.player_pos] |= Flags::PLAYER;
+        // grid.chunks_exact(self.width)
+        //     .map(|row| row.iter().map(|f| f.to_string()).collect::<Vec<_>>())
+        //     .collect::<Vec<_>>()
+
+        // let mut grid = self
+        //     .grid
+        //     .chunks_exact(self.width)
+        //     .map(|row| row.iter().map(|f| f.to_string()).collect::<Vec<_>>())
+        //     .collect::<Vec<_>>();
+
+        let mut grid = (*self.grid)
+            .clone()
+            .iter()
+            .map(|f| f.as_str())
+            .collect::<Vec<_>>();
+        grid[self.player_pos] = "@";
+
+        for &pos in self.boxes.iter() {
+            grid[pos] = "$"
         }
-        for &p in self.targets.iter() {
-            grid[p] |= Flags::TARGET;
+        for &pos in self.targets.iter() {
+            grid[pos] = if self.boxes.contains(&pos) { "*" } else { "." }
         }
-        grid[self.player_pos] |= Flags::PLAYER;
+
         grid.chunks_exact(self.width)
-            .map(|row| row.iter().map(|f| f.to_string()).collect::<Vec<_>>())
+            .map(|row| row.to_vec())
             .collect::<Vec<_>>()
     }
 
     pub fn view_valid_positions(&self) -> String {
         let mut grid = self.get_2d_grid_vec();
-        for &pos in self.valid_positions.iter() {
-            grid[pos / self.width][pos % self.width] = "o".to_string();
+        for (pos, sq) in self.grid.iter().enumerate() {
+            if sq.is_valid() {
+                grid[pos / self.width][pos % self.width] = "O";
+            }
         }
         vec2d_to_string(grid)
     }
@@ -104,10 +126,7 @@ impl Puzzle {
     pub fn view_movable_positions(&self) -> String {
         let mut grid = self.get_2d_grid_vec();
         for &pos in self.movable_positions() {
-            // if pos == self.player_pos {
-            //     continue;
-            // }
-            grid[pos / self.width][pos % self.width] = "+".to_string();
+            grid[pos / self.width][pos % self.width] = "+";
         }
         vec2d_to_string(grid)
     }
@@ -163,38 +182,6 @@ impl Puzzle {
         })
     }
 
-    // /// Returns the directions each box can be pushed in, and the distance they can be moved in that direction.
-    // /// The player must be able to reach the position required to move the box without having to push
-    // /// anything to get there.
-    // pub fn find_all_valid_pushes(
-    //     &self,
-    // ) -> impl Iterator<Item = (usize, DirHolder<usize>)> + Clone + '_ {
-    //     self.boxes.iter().map(|&box_pos| {
-    //         let mut possible_steps = DirHolder::<usize>::default();
-
-    //         possible_steps.iter_mut().for_each(|(dir, steps)| {
-    //             // Check that the push square is within bounds.
-    //             // println!("{:?}", dir);
-    //             if let Some(push_pos) = self.get_push_pos(box_pos, dir) {
-    //                 // Check that the push square can be walked on and reached.
-    //                 if self.is_pos_walkable(push_pos) && self.can_move_to(push_pos) {
-    //                     // println!("able {:?}", dir);
-    //                     let mut new_pos = box_pos;
-    //                     while let Some(p) = self.pos_move(new_pos, dir, 1) {
-    //                         if !self.is_pos_walkable(p) {
-    //                             break;
-    //                         }
-
-    //                         new_pos = p;
-    //                         *steps += 1;
-    //                     }
-    //                 }
-    //             }
-    //         });
-    //         (box_pos, possible_steps)
-    //     })
-    // }
-
     /// Returns the directions each box can be pushed in, and the distance they can be moved in that direction.
     /// If `reachable` is true, then the player must be able to reach the position required to move the box
     /// without having to push anything to get there.
@@ -215,8 +202,8 @@ impl Puzzle {
                         // println!("able {:?}", dir);
                         let mut new_pos = box_pos;
                         while let Some(p) = self.poshelper.step(new_pos, dir, 1) {
-                            if !self.is_pos_walkable(p) || !self.valid_positions.contains(&p) {
-                                // if !self.is_pos_walkable(p) {
+                            // if !self.is_pos_walkable(p) {
+                            if !self.is_pos_walkable(p) || !self.grid[p].is_valid() {
                                 break;
                             }
 
@@ -405,7 +392,8 @@ impl Puzzle {
 
         self.grid[a].is_wall()
             || self.grid[b].is_wall()
-            || !self.valid_positions.contains(&a) && !self.valid_positions.contains(&b)
+            // || !self.valid_positions.contains(&a) && !self.valid_positions.contains(&b)
+            || !self.grid[a].is_valid() && !self.grid[b].is_valid()
             || considered.contains(&a)
             || considered.contains(&b)
             || self.boxes.contains(&a)
@@ -424,7 +412,7 @@ impl Puzzle {
 
 impl Puzzle {
     fn _create(
-        grid: Vec<Flags>,
+        mut grid: Vec<Flags>,
         width: usize,
         height: usize,
         boxes: FxHashSet<usize>,
@@ -432,7 +420,10 @@ impl Puzzle {
         start_pos: usize,
     ) -> Self {
         let puller = Puller::new(&grid, width, height, &targets);
-        let valid_positions = puller.find_all_valid_positions();
+
+        for pos in puller.find_all_valid_positions() {
+            grid[pos] |= Flags::VALID;
+        }
 
         let mut puzzle = Self {
             grid: Rc::new(grid),
@@ -442,7 +433,6 @@ impl Puzzle {
             player_pos: start_pos,
             targets: Rc::new(targets),
             poshelper: Rc::new(PosHelper::new(width, height)),
-            valid_positions: Rc::new(valid_positions),
             ..Default::default()
         };
 
