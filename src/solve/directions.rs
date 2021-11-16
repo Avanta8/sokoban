@@ -59,6 +59,7 @@ impl<T> DirHolder<T> {
         ]
         .into_iter()
     }
+
     #[allow(dead_code)]
     pub fn set(&mut self, dir: Dir, val: T) {
         match dir {
@@ -119,6 +120,7 @@ impl PosHelper {
         }
         Some(pos - 1)
     }
+
     /// Returns an iterator of all the bordering positions around `pos` that are
     /// not out of bounds. (Doesn't check what the square acutally is. Just checks that
     /// it isn't out of bounds.)

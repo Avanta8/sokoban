@@ -64,6 +64,10 @@ impl Puzzle {
     pub fn movable_positions(&self) -> &FxHashSet<usize> {
         &self.movable_positions
     }
+
+    pub fn moves(&self) -> &Vec<Dir> {
+        &self.moves
+    }
 }
 
 impl fmt::Display for Puzzle {
@@ -75,30 +79,11 @@ impl fmt::Display for Puzzle {
 impl Puzzle {
     /// Returns the grid as a 2d vector of strings corresponding to each flag.
     fn get_2d_grid_vec(&self) -> Vec<Vec<&str>> {
-        // let mut grid = (*self.grid).clone();
-        // for &p in self.boxes.iter() {
-        //     grid[p] |= Flags::BOX;
-        // }
-        // for &p in self.targets.iter() {
-        //     grid[p] |= Flags::TARGET;
-        // }
-        // grid[self.player_pos] |= Flags::PLAYER;
-        // grid.chunks_exact(self.width)
-        //     .map(|row| row.iter().map(|f| f.to_string()).collect::<Vec<_>>())
-        //     .collect::<Vec<_>>()
-
-        // let mut grid = self
-        //     .grid
-        //     .chunks_exact(self.width)
-        //     .map(|row| row.iter().map(|f| f.to_string()).collect::<Vec<_>>())
-        //     .collect::<Vec<_>>();
-
         let mut grid = (*self.grid)
             .clone()
             .iter()
             .map(|f| f.as_str())
             .collect::<Vec<_>>();
-        grid[self.player_pos] = "@";
 
         for &pos in self.boxes.iter() {
             grid[pos] = "$"
@@ -106,6 +91,7 @@ impl Puzzle {
         for &pos in self.targets.iter() {
             grid[pos] = if self.boxes.contains(&pos) { "*" } else { "." }
         }
+        grid[self.player_pos] = "@";
 
         grid.chunks_exact(self.width)
             .map(|row| row.to_vec())
@@ -125,7 +111,7 @@ impl Puzzle {
     /// Returns a string view of the movable positions in the grid.
     pub fn view_movable_positions(&self) -> String {
         let mut grid = self.get_2d_grid_vec();
-        for &pos in self.movable_positions() {
+        for &pos in self.movable_positions.iter() {
             grid[pos / self.width][pos % self.width] = "+";
         }
         vec2d_to_string(grid)
@@ -157,29 +143,11 @@ impl Puzzle {
 
 // #[allow(dead_code)]
 impl Puzzle {
-    /// Returns true if the box is touching a wall and cannot be moved away from it.
-    pub fn is_attatched_to_wall(&self, pos: usize) -> bool {
-        todo!()
-    }
-
-    /// Returns true if there is any box that can never be moved.
-    ///
-    /// THIS FUNTION IS NOT CORRECT. EVEN IF A BOX IS BLOCKED. IF A BOX IS BLOCKING A BOX
-    /// BUT CAN BE MOVED OUT OF THE WAY, THEN IT ISN'T ACTUALLY BLOCKED.
-    ///
-    /// Also, they don't have to be touching. Eg. two blocks in a tunnel (they don't yet have to be touching but you
-    /// can never get to the other block.)
-    pub fn check_if_any_box_is_blocked(&self) -> bool {
-        self.boxes.iter().all(|&box_pos| {
-            [Dir::North, Dir::West].iter().any(|&dir| {
-                let a = self.poshelper.step(box_pos, dir, 1);
-                let b = self.poshelper.step(box_pos, dir.opposite(), 1);
-                a.is_some()
-                    && b.is_some()
-                    && self.is_pos_walkable(a.unwrap())
-                    && self.is_pos_walkable(b.unwrap())
-            })
-        })
+    /// Moves the player position the top left square that can be reached without having
+    /// to push any boxes. Top left is the leftmost position on the upmost row.
+    fn move_to_top_left(&mut self) {
+        let &top_left = self.movable_positions.iter().min().unwrap();
+        self.move_to(top_left);
     }
 
     /// Returns the directions each box can be pushed in, and the distance they can be moved in that direction.
@@ -202,8 +170,7 @@ impl Puzzle {
                         // println!("able {:?}", dir);
                         let mut new_pos = box_pos;
                         while let Some(p) = self.poshelper.step(new_pos, dir, 1) {
-                            // if !self.is_pos_walkable(p) {
-                            if !self.is_pos_walkable(p) || !self.grid[p].is_valid() {
+                            if !self.grid[p].is_valid() || self.boxes.contains(&p) {
                                 break;
                             }
 
@@ -241,13 +208,17 @@ impl Puzzle {
             .poshelper
             .step(pos, dir, steps)
             .expect("was not a valid move");
-        self.update_player_pos(
-            self.get_push_pos(new_box_pos, dir)
-                .expect("was not a valid move. Player ended up out of bounds."),
-        );
-        self.update_box_pos(pos, new_box_pos);
 
-        self.update_movable_positions();
+        let new_player_pos = self
+            .get_push_pos(new_box_pos, dir)
+            .expect("was not a valid move. Player ended up out of bounds.");
+
+        self.update_box_pos(pos, new_box_pos);
+        self.update_player_pos(new_box_pos, true);
+
+        for _ in 0..steps {
+            self.moves.push(dir);
+        }
     }
 
     /// Moves the player position to `pos`.
@@ -259,18 +230,19 @@ impl Puzzle {
         );
 
         let mut bag = VecDeque::new();
-        bag.push_back(target);
+        bag.push_back(self.player_pos);
 
         let mut visited = FxHashMap::<usize, Option<Dir>>::default();
-        visited.insert(target, None);
+        visited.insert(self.player_pos, None);
 
         while let Some(current) = bag.pop_front() {
             if current == target {
                 break;
             }
 
-            for (dir, new_pos) in self.poshelper.borders_with_dirs(target) {
+            for (dir, new_pos) in self.poshelper.borders_with_dirs(current) {
                 if self.is_pos_walkable(new_pos) && !visited.contains_key(&new_pos) {
+                    assert!(!self.grid[new_pos].is_wall());
                     bag.push_back(new_pos);
                     visited.insert(new_pos, Some(dir));
                 }
@@ -286,18 +258,14 @@ impl Puzzle {
         let mut moves = VecDeque::new();
         let mut pos = target;
         while let Some(&Some(dir)) = visited.get(&pos) {
-            moves.push_back(dir);
+            moves.push_front(dir);
             pos = self
                 .poshelper
                 .step(pos, dir.opposite(), 1)
                 .expect("Rebuilding path encountered out of bounds position.");
         }
 
-        // Not required as of yet.
-        // BUT MAY DO IN THE FUTURE!!
-        // self.update_player_pos(target);
-        // self.update_movable_positions();
-
+        self.update_player_pos(target, false);
         self.add_moves(moves);
     }
 
@@ -312,8 +280,11 @@ impl Puzzle {
         self.boxes.insert(new_pos);
     }
 
-    fn update_player_pos(&mut self, new_pos: usize) {
+    fn update_player_pos(&mut self, new_pos: usize, update: bool) {
         self.player_pos = new_pos;
+        if update {
+            self.update_movable_positions();
+        }
     }
 
     fn add_moves(&mut self, moves: impl IntoIterator<Item = Dir>) {
@@ -353,7 +324,8 @@ impl Puzzle {
             for (dir, &max_steps) in dirs.iter() {
                 for steps in 1..=max_steps {
                     let new_puzzle = self.find_expansions_helper(box_pos, dir, steps);
-                    if let Some(puzzle) = new_puzzle {
+                    if let Some(mut puzzle) = new_puzzle {
+                        puzzle.move_to_top_left();
                         expansions.push(puzzle);
                     }
                 }
@@ -367,7 +339,9 @@ impl Puzzle {
         let mut new_puzzle = self.clone();
 
         new_puzzle.move_box(box_pos, dir, steps);
-        if new_puzzle.check_box_blocked(box_pos) {
+        let new_pos = self.poshelper.step(box_pos, dir, steps).unwrap();
+        // if false {
+        if !self.targets.contains(&new_pos) && new_puzzle.check_box_blocked(new_pos) {
             None
         } else {
             Some(new_puzzle)
@@ -387,12 +361,11 @@ impl Puzzle {
         dir: Dir,
     ) -> bool {
         considered.insert(box_pos);
-        let a = self.poshelper.step(box_pos, dir, 1).expect("Box was directly next to the edge of the grid, which shouldn't be possible as it should be sorrounded by a wall.");
-        let b = self.poshelper.step(box_pos, dir.opposite(), 1).expect("Box was directly next to the edge of the grid, which shouldn't be possible as it should be sorrounded by a wall.");
+        let a = self.poshelper.step(box_pos, dir, 1).unwrap();
+        let b = self.poshelper.step(box_pos, dir.opposite(), 1).unwrap();
 
         self.grid[a].is_wall()
             || self.grid[b].is_wall()
-            // || !self.valid_positions.contains(&a) && !self.valid_positions.contains(&b)
             || !self.grid[a].is_valid() && !self.grid[b].is_valid()
             || considered.contains(&a)
             || considered.contains(&b)
@@ -401,13 +374,6 @@ impl Puzzle {
             || self.boxes.contains(&b)
                 && self.check_box_blocked_direction(b, considered, dir.rotation())
     }
-}
-
-impl Puzzle {
-    /// Returns false if it is sure that the puzzle cannot be solved from this state.
-    /// If it returns true, this does **not** necesarily mean that that the puzzle for sure
-    /// can still be solved.
-    fn is_still_valid(&self) {}
 }
 
 impl Puzzle {
@@ -437,6 +403,7 @@ impl Puzzle {
         };
 
         puzzle.update_movable_positions();
+        puzzle.move_to_top_left();
 
         puzzle
     }

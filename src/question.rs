@@ -164,6 +164,9 @@ impl Question {
     }
 }
 
+// TODO:
+// Player on goal square represented by '+'
+
 const WALL_CHAR: char = '#';
 const SPACE_CHAR: char = ' ';
 const BOX_CHAR: char = '$';

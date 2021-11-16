@@ -44,6 +44,8 @@ pub fn solve(inital_puzzle: Puzzle) {
     let mut solved_puzzle = None;
 
     let mut count = -1;
+    // let ds = 1;
+    let ds = 10000;
 
     while let Some(puzzle) = bag.pop_front() {
         // if bag.len() % 10000 == 0 {
@@ -52,10 +54,10 @@ pub fn solve(inital_puzzle: Puzzle) {
         // }
 
         count += 1;
-        // if count % 10_000 == 0 {
-        if count % 1 == 0 {
-            // println!("\n{} count: {} {}", "-".repeat(30), count, "-".repeat(30));
-            // println!("Looking at puzzle:\n{}\n", puzzle);
+        if count % ds == 0 {
+            println!("\n{} count: {} {}", "-".repeat(30), count, "-".repeat(30));
+            println!("Looking at puzzle:\n{}\n", puzzle);
+            println!("{:?}", puzzle.moves());
             // println!("{}", puzzle.view_movable_positions());
         }
 
@@ -129,6 +131,7 @@ pub fn solve(inital_puzzle: Puzzle) {
     println!("visited: {}", visited.len());
     if let Some(puzzle) = solved_puzzle {
         println!("Solved:\n{}", puzzle);
+        println!("Moves: {:?}", puzzle.moves());
     } else {
         println!("unsolved....");
     }
