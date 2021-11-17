@@ -3,12 +3,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::rc::Rc;
 use std::{collections::VecDeque, fmt};
 
-use crate::question;
-
-use super::directions::{Dir, DirHolder, PosHelper};
-use super::expansions::ExpansionsHelper;
-use super::puller::Puller;
-use super::squares::Flags;
+use super::board::Board;
+use super::directions::{Dir, DirHolder};
 
 /// Joins a 2d vector of strings into a single output string.
 ///
@@ -24,49 +20,39 @@ fn vec2d_to_string(grid: Vec<Vec<&str>>) -> String {
         .join("\n")
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Puzzle {
-    grid: Rc<Vec<Flags>>,
-    width: usize,
-    height: usize,
-    boxes: FxHashSet<usize>,
-    targets: Rc<FxHashSet<usize>>,
-    player_pos: usize,
-    moves: Vec<Dir>,
+    board: Rc<Board>,
 
-    poshelper: Rc<PosHelper>,
+    pub boxes: FxHashSet<usize>,
+    pub player_pos: usize,
+    pub moves: Vec<Dir>,
 
     /// `movable_positions` should always be kept updated.
-    movable_positions: FxHashSet<usize>,
+    pub movable_positions: FxHashSet<usize>,
 }
 
 impl Puzzle {
-    pub fn grid(&self) -> &Vec<Flags> {
-        &self.grid
-    }
+    pub fn new(board: Rc<Board>, player_pos: usize, boxes: FxHashSet<usize>) -> Self {
+        Self {
+            board,
+            player_pos,
+            boxes,
 
-    pub fn width(&self) -> usize {
-        self.width
-    }
-
-    pub fn height(&self) -> usize {
-        self.height
-    }
-
-    pub fn boxes(&self) -> &FxHashSet<usize> {
-        &self.boxes
-    }
-
-    pub fn targets(&self) -> &FxHashSet<usize> {
-        &self.targets
-    }
-
-    pub fn movable_positions(&self) -> &FxHashSet<usize> {
-        &self.movable_positions
+            moves: Vec::default(),
+            movable_positions: FxHashSet::default(),
+        }
     }
 
     pub fn moves(&self) -> &Vec<Dir> {
         &self.moves
+    }
+
+    pub fn is_solved(&self) -> bool {
+        self.board
+            .targets
+            .iter()
+            .all(|target| self.boxes.contains(target))
     }
 }
 
@@ -79,30 +65,14 @@ impl fmt::Display for Puzzle {
 impl Puzzle {
     /// Returns the grid as a 2d vector of strings corresponding to each flag.
     fn get_2d_grid_vec(&self) -> Vec<Vec<&str>> {
-        let mut grid = (*self.grid)
-            .clone()
-            .iter()
-            .map(|f| f.as_str())
-            .collect::<Vec<_>>();
-
-        for &pos in self.boxes.iter() {
-            grid[pos] = "$"
-        }
-        for &pos in self.targets.iter() {
-            grid[pos] = if self.boxes.contains(&pos) { "*" } else { "." }
-        }
-        grid[self.player_pos] = "@";
-
-        grid.chunks_exact(self.width)
-            .map(|row| row.to_vec())
-            .collect::<Vec<_>>()
+        self.board.to_2d_grid_str(self.player_pos, &self.boxes)
     }
 
     pub fn view_valid_positions(&self) -> String {
         let mut grid = self.get_2d_grid_vec();
-        for (pos, sq) in self.grid.iter().enumerate() {
+        for (pos, sq) in self.board.grid.iter().enumerate() {
             if sq.is_valid() {
-                grid[pos / self.width][pos % self.width] = "O";
+                grid[pos / self.board.width][pos % self.board.width] = "O";
             }
         }
         vec2d_to_string(grid)
@@ -112,7 +82,10 @@ impl Puzzle {
     pub fn view_movable_positions(&self) -> String {
         let mut grid = self.get_2d_grid_vec();
         for &pos in self.movable_positions.iter() {
-            grid[pos / self.width][pos % self.width] = "+";
+            if pos == self.player_pos {
+                continue;
+            }
+            grid[pos / self.board.width][pos % self.board.width] = "+";
         }
         vec2d_to_string(grid)
     }
@@ -125,7 +98,7 @@ impl Puzzle {
         while !bag.is_empty() {
             let current = bag.pop().unwrap();
 
-            for new_pos in self.poshelper.borders(current) {
+            for new_pos in self.board.borders(current) {
                 if self.is_pos_walkable(new_pos) && !visited.contains(&new_pos) {
                     bag.push(new_pos);
                     visited.insert(new_pos);
@@ -145,7 +118,7 @@ impl Puzzle {
 impl Puzzle {
     /// Moves the player position the top left square that can be reached without having
     /// to push any boxes. Top left is the leftmost position on the upmost row.
-    fn move_to_top_left(&mut self) {
+    pub fn move_to_top_left(&mut self) {
         let &top_left = self.movable_positions.iter().min().unwrap();
         self.move_to(top_left);
     }
@@ -162,15 +135,13 @@ impl Puzzle {
 
             possible_steps.iter_mut().for_each(|(dir, steps)| {
                 // Check that the push square is within bounds.
-                // println!("{:?}", dir);
                 if let Some(push_pos) = self.get_push_pos(box_pos, dir) {
                     // Check that the push square can be walked on and reached.
                     if self.is_pos_walkable(push_pos) && (!reachable || self.can_move_to(push_pos))
                     {
-                        // println!("able {:?}", dir);
                         let mut new_pos = box_pos;
-                        while let Some(p) = self.poshelper.step(new_pos, dir, 1) {
-                            if !self.grid[p].is_valid() || self.boxes.contains(&p) {
+                        while let Some(p) = self.board.step(new_pos, dir, 1) {
+                            if !self.board.square_at(p).is_valid() || self.boxes.contains(&p) {
                                 break;
                             }
 
@@ -192,7 +163,7 @@ impl Puzzle {
     /// Makes the move. The move must be valid.
     ///
     /// `pos` is the position of the box that should be moved.
-    pub fn move_box(&mut self, pos: usize, dir: Dir, steps: usize) {
+    pub fn move_box(&mut self, pos: usize, dir: Dir, steps: usize) -> usize {
         assert!(
             self.boxes.contains(&pos),
             "pos {} is not in the boxes.",
@@ -205,7 +176,7 @@ impl Puzzle {
         self.move_to(push_pos);
 
         let new_box_pos = self
-            .poshelper
+            .board
             .step(pos, dir, steps)
             .expect("was not a valid move");
 
@@ -214,11 +185,13 @@ impl Puzzle {
             .expect("was not a valid move. Player ended up out of bounds.");
 
         self.update_box_pos(pos, new_box_pos);
-        self.update_player_pos(new_box_pos, true);
+        self.update_player_pos(new_player_pos, true);
 
         for _ in 0..steps {
             self.moves.push(dir);
         }
+
+        new_box_pos
     }
 
     /// Moves the player position to `pos`.
@@ -240,9 +213,9 @@ impl Puzzle {
                 break;
             }
 
-            for (dir, new_pos) in self.poshelper.borders_with_dirs(current) {
+            for (dir, new_pos) in self.board.borders_with_dirs(current) {
                 if self.is_pos_walkable(new_pos) && !visited.contains_key(&new_pos) {
-                    assert!(!self.grid[new_pos].is_wall());
+                    assert!(!self.board.square_at(new_pos).is_wall());
                     bag.push_back(new_pos);
                     visited.insert(new_pos, Some(dir));
                 }
@@ -260,7 +233,7 @@ impl Puzzle {
         while let Some(&Some(dir)) = visited.get(&pos) {
             moves.push_front(dir);
             pos = self
-                .poshelper
+                .board
                 .step(pos, dir.opposite(), 1)
                 .expect("Rebuilding path encountered out of bounds position.");
         }
@@ -294,164 +267,16 @@ impl Puzzle {
     /// Returns the position the player would need to stand on to push a box placed
     /// on `pos` in `dir` direction, or None if the position is out of bounds.
     fn get_push_pos(&self, pos: usize, dir: Dir) -> Option<usize> {
-        self.poshelper.step(pos, dir.opposite(), 1)
+        self.board.step(pos, dir.opposite(), 1)
     }
 
     fn is_pos_walkable(&self, pos: usize) -> bool {
-        self.grid[pos].is_space() && !self.boxes.contains(&pos)
+        self.board.square_at(pos).is_space() && !self.boxes.contains(&pos)
     }
 
     pub fn get_encoding(&self) -> Vec<usize> {
         let mut v = self.boxes.iter().copied().collect::<Vec<_>>();
         v.push(self.player_pos);
         v
-    }
-}
-
-impl Puzzle {
-    pub fn is_solved(&self) -> bool {
-        self.targets
-            .iter()
-            .all(|target| self.boxes.contains(target))
-    }
-}
-
-impl Puzzle {
-    pub fn find_expansions(&self) -> Vec<Self> {
-        let mut expansions = vec![];
-
-        for (box_pos, dirs) in self.find_all_pushes(true) {
-            for (dir, &max_steps) in dirs.iter() {
-                for steps in 1..=max_steps {
-                    let new_puzzle = self.find_expansions_helper(box_pos, dir, steps);
-                    if let Some(mut puzzle) = new_puzzle {
-                        puzzle.move_to_top_left();
-                        expansions.push(puzzle);
-                    }
-                }
-            }
-        }
-
-        expansions
-    }
-
-    fn find_expansions_helper(&self, box_pos: usize, dir: Dir, steps: usize) -> Option<Self> {
-        let mut new_puzzle = self.clone();
-
-        new_puzzle.move_box(box_pos, dir, steps);
-        let new_pos = self.poshelper.step(box_pos, dir, steps).unwrap();
-        // if false {
-        if !self.targets.contains(&new_pos) && new_puzzle.check_box_blocked(new_pos) {
-            None
-        } else {
-            Some(new_puzzle)
-        }
-    }
-
-    fn check_box_blocked(&self, box_pos: usize) -> bool {
-        let mut considered = FxHashSet::default();
-        self.check_box_blocked_direction(box_pos, &mut considered, Dir::North)
-            && self.check_box_blocked_direction(box_pos, &mut considered, Dir::East)
-    }
-
-    fn check_box_blocked_direction(
-        &self,
-        box_pos: usize,
-        considered: &mut FxHashSet<usize>,
-        dir: Dir,
-    ) -> bool {
-        considered.insert(box_pos);
-        let a = self.poshelper.step(box_pos, dir, 1).unwrap();
-        let b = self.poshelper.step(box_pos, dir.opposite(), 1).unwrap();
-
-        self.grid[a].is_wall()
-            || self.grid[b].is_wall()
-            || !self.grid[a].is_valid() && !self.grid[b].is_valid()
-            || considered.contains(&a)
-            || considered.contains(&b)
-            || self.boxes.contains(&a)
-                && self.check_box_blocked_direction(a, considered, dir.rotation())
-            || self.boxes.contains(&b)
-                && self.check_box_blocked_direction(b, considered, dir.rotation())
-    }
-}
-
-impl Puzzle {
-    fn _create(
-        mut grid: Vec<Flags>,
-        width: usize,
-        height: usize,
-        boxes: FxHashSet<usize>,
-        targets: FxHashSet<usize>,
-        start_pos: usize,
-    ) -> Self {
-        let puller = Puller::new(&grid, width, height, &targets);
-
-        for pos in puller.find_all_valid_positions() {
-            grid[pos] |= Flags::VALID;
-        }
-
-        let mut puzzle = Self {
-            grid: Rc::new(grid),
-            width,
-            height,
-            boxes,
-            player_pos: start_pos,
-            targets: Rc::new(targets),
-            poshelper: Rc::new(PosHelper::new(width, height)),
-            ..Default::default()
-        };
-
-        puzzle.update_movable_positions();
-        puzzle.move_to_top_left();
-
-        puzzle
-    }
-}
-
-impl<Q: std::borrow::Borrow<question::Question>> From<Q> for Puzzle {
-    fn from(question: Q) -> Self {
-        let question = question.borrow();
-        let (width, height) = (question.width(), question.height());
-        let mut grid = Vec::with_capacity(width * height);
-        for row in question.rows() {
-            for sq in row {
-                grid.push(match *sq {
-                    question::Square::Wall => Flags::WALL,
-                    question::Square::Space => Flags::SPACE,
-                })
-            }
-        }
-
-        let start = question.start().to_usize(width);
-
-        let mapper = |it: &std::collections::HashSet<question::Position>| -> FxHashSet<usize> {
-            it.iter()
-                .map(|p| p.to_usize(width))
-                .collect::<FxHashSet<_>>()
-        };
-
-        let boxes = mapper(question.boxes());
-        let targets = mapper(question.targets());
-
-        Self::_create(grid, width, height, boxes, targets, start)
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    fn create_puzzle(filename: &str, idx: usize) -> Puzzle {
-        use crate::reader::test_config::create_collection;
-        (&create_collection(filename)[idx]).into()
-    }
-
-    const FILENAME: &str = "puzzles.txt";
-
-    #[test]
-    fn test_directions() {
-        let puzzle = create_puzzle(FILENAME, 0);
-        println!("{}", puzzle);
     }
 }

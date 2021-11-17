@@ -129,6 +129,7 @@ impl Position {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct Question {
     width: usize,
     height: usize,

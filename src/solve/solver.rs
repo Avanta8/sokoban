@@ -1,138 +1,148 @@
-#![allow(dead_code, unused_imports)]
+// #![allow(dead_code, unused_imports)]
 
 use rustc_hash::FxHashSet;
 use std::collections::VecDeque;
+use std::rc::Rc;
 
-use crate::solve::expansions::ExpansionsHelper;
-
+use super::board::Board;
+use super::deadlock::Detector;
+use super::puller::Puller;
 use super::puzzle::Puzzle;
+use super::squares::Flags;
 
-/*
-If we push a box to a place where can no longer be pushed from any direction,
-the we know this is the wrong solution.
-If a box is blocked by another box, recursively check whether each connecting
-box can be pushed or not.
-A box doesn't necesarily have to be unpushable to block. It we cannot get to, and push out of the way
-a box that is bocking the box in front of us, then (perhaps if this is the only exit, or if all other
-exits are also blocked), then we know this is incorrect already.
+use crate::question;
 
-If a box is pushed towards a wall, we know we can never get it off the wall, unless the wall goes more out.
-*/
+pub struct Solver {
+    // board: Rc<Board>,
+    puzzles: VecDeque<Puzzle>,
+    detector: Detector,
+    visited: FxHashSet<Vec<usize>>,
+}
 
-/*
-After making a move, analyse it simply.
-Only need to consider the box that was just moved, and the ones now connecting to it.
-If the box was move into a corner that doesn't contain a target, then we instantly know that this
-is an incorrect solution.
+impl Solver {
+    pub fn solve(&mut self) {
+        let mut solved_puzzle = None;
 
-If the box was moved so that it is now adjacent to a wall, if the wall does not go 'outwards' again, and
-there are more boxes than target adjacent to that wall then we know this is incorrect.
+        let mut count = -1;
 
-If a box is pushed to that it is now connected to one or more boxes, and none of these connected boxes can be pushed,
-then we know this is incorrect. We could do some caching - of all the possible moves of all the boxes, and see if
-the new position of the box would make is so that there are no moves left for any of them. Implementing this would
-also implement #1.
-*/
+        // let ds = 1;
+        let ds = 10000;
 
-pub fn solve(inital_puzzle: Puzzle) {
-    // let mut bag = vec![grid];
-    // let mut visited = FxHashSet::from_iter([inital_puzzle.boxes().clone()]);
-
-    let mut visited = FxHashSet::from_iter([inital_puzzle.get_encoding()]);
-    let mut bag = VecDeque::from([inital_puzzle]);
-
-    let mut solved_puzzle = None;
-
-    let mut count = -1;
-    // let ds = 1;
-    let ds = 10000;
-
-    while let Some(puzzle) = bag.pop_front() {
-        // if bag.len() % 10000 == 0 {
-        //     println!("bag len: {}", bag.len());
-        //     println!("{}", puzzle)
-        // }
-
-        count += 1;
-        if count % ds == 0 {
-            println!("\n{} count: {} {}", "-".repeat(30), count, "-".repeat(30));
-            println!("Looking at puzzle:\n{}\n", puzzle);
-            println!("{:?}", puzzle.moves());
-            // println!("{}", puzzle.view_movable_positions());
-        }
-
-        // println!();
-        // println!();
-        // println!("{}", puzzle);
-        // println!();
-        // println!("{}", puzzle.view_movable_positions());
-
-        if puzzle.is_solved() {
-            solved_puzzle = Some(puzzle);
-            break;
-        }
-
-        // let expansions = ExpansionsHelper::find_expansions(
-        //     puzzle.find_all_pushes(false).collect::<Vec<_>>(),
-        //     puzzle.movable_positions(),
-        // );
-
-        for new_puzzle in puzzle.find_expansions() {
-            let encoding = new_puzzle.get_encoding();
-            if visited.contains(&encoding) {
-                continue;
+        while let Some(puzzle) = self.puzzles.pop_front() {
+            count += 1;
+            if count % ds == 0 {
+                println!("\n{} count: {} {}", "-".repeat(30), count, "-".repeat(30));
+                println!("Looking at puzzle:\n{}\n", puzzle);
+                println!("moves: {:?}", puzzle.moves());
+                // println!("movable_positions:\n{}", puzzle.view_movable_positions());
+                // println!("valid positions:\n{}", puzzle.view_valid_positions());
             }
 
-            visited.insert(encoding);
-            bag.push_back(new_puzzle);
+            if puzzle.is_solved() {
+                solved_puzzle = Some(puzzle);
+                break;
+            }
+
+            self.expand(puzzle);
         }
 
-        // for (pos, dirs) in puzzle.find_all_pushes() {
-        // let all_pushes = puzzle.find_all_valid_pushes();
-        // if all_pushes
-        //     .clone()
-        //     .any(|(_, dirs)| dirs.iter().all(|(_, steps)| *steps == 0))
-        // {
-        //     continue;
-        // }
-
-        // if puzzle.check_if_any_box_is_blocked() {
-        //     continue;
-        // }
-
-        // for (pos, dirs) in all_pushes {
-        // for (pos, dirs) in puzzle.find_all_valid_pushes() {
-        //     for (dir, &max_steps) in dirs.iter() {
-        //         // println!();
-        //         // println!("dir: {:?}, max steps: {}", dir, max_steps);
-        //         for steps in 1..=max_steps {
-        //             // println!("{}", steps);
-        //             let mut new_puzzle = puzzle.clone();
-        //             new_puzzle.move_box(pos, dir, steps);
-        //             // println!("{}", new_puzzle);
-        //             // println!();
-        //             // println!("{}", new_puzzle.view_movable_positions());
-        //             // println!("{:?}, {:?}", new_puzzle.targets(), new_puzzle.boxes());
-
-        //             let encoding = new_puzzle.get_encoding();
-
-        //             if visited.contains(&encoding) {
-        //                 continue;
-        //             }
-
-        //             visited.insert(encoding);
-        //             bag.push_back(new_puzzle);
-        //         }
-        //     }
-        // }
+        println!("total iterations: {}", count);
+        println!("visited: {}", self.visited.len());
+        if let Some(puzzle) = solved_puzzle {
+            println!("Solved:\n{}", puzzle);
+            println!("Moves: {:?}", puzzle.moves());
+        } else {
+            println!("unsolved....");
+        }
     }
 
-    println!("total iterations: {}", count);
-    println!("visited: {}", visited.len());
-    if let Some(puzzle) = solved_puzzle {
-        println!("Solved:\n{}", puzzle);
-        println!("Moves: {:?}", puzzle.moves());
-    } else {
-        println!("unsolved....");
+    fn expand(&mut self, puzzle: Puzzle) {
+        for (box_pos, dirs) in puzzle.find_all_pushes(true) {
+            for (dir, &max_steps) in dirs.iter() {
+                for steps in 1..=max_steps {
+                    let mut new_puzzle = puzzle.clone();
+
+                    let last_moved = new_puzzle.move_box(box_pos, dir, steps);
+                    new_puzzle.move_to_top_left();
+
+                    let encoding = new_puzzle.get_encoding();
+                    if self.visited.contains(&encoding) {
+                        continue;
+                    }
+
+                    if self.detector.is_deadlocked(
+                        new_puzzle.player_pos,
+                        &new_puzzle.boxes,
+                        last_moved,
+                    ) {
+                        break;
+                    }
+                    self.visited.insert(encoding);
+                    self.puzzles.push_back(new_puzzle)
+                }
+            }
+        }
+    }
+}
+
+impl Solver {
+    fn _create(
+        mut grid: Vec<Flags>,
+        width: usize,
+        height: usize,
+        boxes: FxHashSet<usize>,
+        targets: FxHashSet<usize>,
+        start_pos: usize,
+    ) -> Self {
+        let puller = Puller::new(Board::new(width, height, grid.clone(), targets.clone()));
+
+        for pos in puller.find_all_valid_positions() {
+            grid[pos] |= Flags::VALID;
+        }
+
+        let board = Board::new(width, height, grid, targets);
+        let detector = Detector::new(&board);
+
+        let rc_board = Rc::new(board);
+
+        let mut puzzle = Puzzle::new(Rc::clone(&rc_board), start_pos, boxes);
+        puzzle.update_movable_positions();
+        puzzle.move_to_top_left();
+
+        Self {
+            // board: rc_board,
+            puzzles: vec![puzzle].into(),
+            detector,
+            visited: FxHashSet::default(),
+        }
+    }
+}
+
+impl<'a, Q: std::borrow::Borrow<question::Question>> From<Q> for Solver {
+    fn from(question: Q) -> Self {
+        let question = question.borrow();
+        let (width, height) = (question.width(), question.height());
+        let mut grid = Vec::with_capacity(width * height);
+        for row in question.rows() {
+            for sq in row {
+                grid.push(match *sq {
+                    question::Square::Wall => Flags::WALL,
+                    question::Square::Space => Flags::SPACE,
+                })
+            }
+        }
+
+        let start = question.start().to_usize(width);
+
+        let mapper = |it: &std::collections::HashSet<question::Position>| -> FxHashSet<usize> {
+            it.iter()
+                .map(|p| p.to_usize(width))
+                .collect::<FxHashSet<_>>()
+        };
+
+        let boxes = mapper(question.boxes());
+        let targets = mapper(question.targets());
+
+        Self::_create(grid, width, height, boxes, targets, start)
     }
 }
